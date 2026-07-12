@@ -20,7 +20,7 @@ from retirement_core.domain.enums import (
     TaxableRmdAllocationMethod,
     TransactionType,
 )
-from retirement_core.domain.medicare import MedicarePlanInput
+from retirement_core.domain.medicare import AnnualIrmaaResult, MedicarePlanInput
 from retirement_core.domain.tax import AnnualFederalAgiResult
 
 NonNegativeMoney = Annotated[Decimal, Field(ge=0, decimal_places=2)]
@@ -218,6 +218,7 @@ class AnnualHouseholdResult(BaseModel):
     spending: Decimal
     contributions: Decimal = Decimal("0")
     cash_withdrawals: Decimal = Decimal("0")
+    medicare_costs: Decimal = Decimal("0")
     cash_surplus: Decimal
     federal_agi_result: AnnualFederalAgiResult | None = None
     federal_tax_result: FederalIncomeTaxResult | None = None
@@ -225,6 +226,7 @@ class AnnualHouseholdResult(BaseModel):
     social_security_taxation: SocialSecurityTaxationResult | None = None
     rmd_qcd_result: AnnualRmdQcdResult | None = None
     missouri_tax_result: MissouriTaxResult | None = None
+    irmaa_result: AnnualIrmaaResult | None = None
 
 
 class AnnualRmdAccountResult(BaseModel):
@@ -354,6 +356,7 @@ class TransactionLedgerEntry(BaseModel):
     federal_tax_payment: Decimal = Decimal("0")
     taxable_ordinary_income: Decimal = Decimal("0")
     missouri_tax_payment: Decimal = Decimal("0")
+    medicare_payment: Decimal = Decimal("0")
     taxable_amount: Decimal | None = None
     roth_conversion_method: RothConversionMethod | None = None
 

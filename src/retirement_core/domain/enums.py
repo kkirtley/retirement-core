@@ -78,6 +78,7 @@ class TransactionType(StrEnum):
     SOCIAL_SECURITY_INCOME = "social_security_income"
     RMD_DISTRIBUTION = "rmd_distribution"
     MISSOURI_TAX_PAYMENT = "missouri_tax_payment"
+    MEDICARE_PAYMENT = "medicare_payment"
 
 
 class CharitableGivingMethod(StrEnum):

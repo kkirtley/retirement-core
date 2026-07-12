@@ -29,9 +29,16 @@ def reconcile_household_cash(
     cash_surplus: Decimal,
     federal_tax: Decimal = Decimal("0"),
     missouri_tax: Decimal = Decimal("0"),
+    medicare_costs: Decimal = Decimal("0"),
 ) -> None:
     expected = (
-        spendable_income + cash_withdrawals - spending - contributions - federal_tax - missouri_tax
+        spendable_income
+        + cash_withdrawals
+        - spending
+        - contributions
+        - federal_tax
+        - missouri_tax
+        - medicare_costs
     )
     if abs(expected - cash_surplus) > RECONCILIATION_TOLERANCE:
         raise ValueError(

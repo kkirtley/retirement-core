@@ -8,10 +8,16 @@ from retirement_core.domain.enums import (
     CharitableGivingMethod,
     FilingStatus,
     IncomeType,
+    MedicareBasePremiumMode,
     PensionType,
     SocialSecurityBenefitSubtype,
     TaxableRmdAllocationMethod,
     TransactionType,
+)
+from retirement_core.domain.medicare import (
+    AnnualIrmaaResult,
+    IrmaaTaxRecordInput,
+    MedicarePersonInput,
 )
 from retirement_core.domain.models import (
     AccountInput,
@@ -41,6 +47,10 @@ from retirement_core.engine.ledger import (
     reconcile_account,
     reconcile_household_cash,
 )
+from retirement_core.engine.medicare_irmaa import (
+    calculate_annual_irmaa,
+    irmaa_tax_record_from_annual_agi,
+)
 from retirement_core.engine.missouri_tax import MissouriOwnerIncome, calculate_missouri_income_tax
 from retirement_core.engine.rmd_qcd import (
     AccountRmdResult,
@@ -52,7 +62,7 @@ from retirement_core.engine.rmd_qcd import (
 from retirement_core.engine.social_security_tax import calculate_taxable_social_security
 from retirement_core.engine.transactions import AccountActivity, apply_transaction
 from retirement_core.rules.missouri_tax import MissouriTaxRules
-from retirement_core.rules.models import FederalTaxRules
+from retirement_core.rules.models import FederalTaxRules, MedicareIrmaaRules
 from retirement_core.rules.rmd_qcd import RmdQcdRules
 
 _PRETAX_ACCOUNT_TYPES = {AccountType.TRADITIONAL_IRA, AccountType.TRADITIONAL_401K}
@@ -64,6 +74,7 @@ def run_projection(
     federal_tax_rules: FederalTaxRules | None = None,
     rmd_qcd_rules_by_year: dict[int, RmdQcdRules] | None = None,
     missouri_tax_rules_by_year: dict[int, MissouriTaxRules] | None = None,
+    medicare_irmaa_rules_by_year: dict[int, MedicareIrmaaRules] | None = None,
 ) -> ProjectionResult:
     plan = request.plan
     accounts = {account.id: account for account in plan.accounts}
@@ -76,6 +87,8 @@ def run_projection(
     ledger_entries: list[TransactionLedgerEntry] = []
     rmd_qcd_rules_by_year = rmd_qcd_rules_by_year or {}
     missouri_tax_rules_by_year = missouri_tax_rules_by_year or {}
+    medicare_irmaa_rules_by_year = medicare_irmaa_rules_by_year or {}
+    completed_irmaa_tax_records: dict[int, IrmaaTaxRecordInput] = {}
 
     first_year = plan.start_date.year
     last_year = plan.end_date.year
@@ -205,6 +218,24 @@ def run_projection(
             year_entries.append(entry)
             ledger_entries.append(entry)
 
+        irmaa_result = _calculate_annual_medicare(
+            request,
+            year,
+            completed_irmaa_tax_records,
+            medicare_irmaa_rules_by_year.get(year),
+        )
+        if irmaa_result is not None:
+            medicare_entries = _apply_medicare_payments(
+                request,
+                year,
+                accounts,
+                balances,
+                activity,
+                irmaa_result,
+            )
+            year_entries.extend(medicare_entries)
+            ledger_entries.extend(medicare_entries)
+
         for account_id in accounts:
             account_activity = activity[account_id]
             row = AnnualAccountResult(
@@ -229,6 +260,7 @@ def run_projection(
         contributions = sum((entry.contribution for entry in year_entries), Decimal("0"))
         federal_tax = sum((entry.federal_tax_payment for entry in year_entries), Decimal("0"))
         missouri_tax = sum((entry.missouri_tax_payment for entry in year_entries), Decimal("0"))
+        medicare_costs = sum((entry.medicare_payment for entry in year_entries), Decimal("0"))
         cash_surplus = (
             spendable_income
             + cash_withdrawals
@@ -236,6 +268,7 @@ def run_projection(
             - contributions
             - federal_tax
             - missouri_tax
+            - medicare_costs
         )
         reconcile_household_cash(
             spendable_income,
@@ -245,6 +278,7 @@ def run_projection(
             cash_surplus,
             federal_tax=federal_tax,
             missouri_tax=missouri_tax,
+            medicare_costs=medicare_costs,
         )
 
         total_taxes = federal_tax + missouri_tax
@@ -262,6 +296,7 @@ def run_projection(
                 spending=spending,
                 contributions=contributions,
                 cash_withdrawals=cash_withdrawals,
+                medicare_costs=medicare_costs,
                 cash_surplus=cash_surplus,
                 federal_agi_result=federal_agi_result,
                 federal_tax_result=federal_tax_result,
@@ -269,8 +304,11 @@ def run_projection(
                 social_security_taxation=social_security_taxation,
                 rmd_qcd_result=rmd_qcd_result,
                 missouri_tax_result=missouri_tax_result,
+                irmaa_result=irmaa_result,
             )
         )
+        if federal_agi_result is not None:
+            completed_irmaa_tax_records[year] = irmaa_tax_record_from_annual_agi(federal_agi_result)
 
     provenance = {
         "rules_mode": "external_versioned_datasets",
@@ -284,6 +322,9 @@ def run_projection(
     for year, missouri_rules in sorted(missouri_tax_rules_by_year.items()):
         if first_year <= year <= last_year:
             provenance[f"missouri_tax_dataset_id:{year}"] = missouri_rules.dataset_id
+    for year, medicare_rules in sorted(medicare_irmaa_rules_by_year.items()):
+        if first_year <= year <= last_year:
+            provenance[f"medicare_irmaa_dataset_id:{year}"] = medicare_rules.dataset_id
 
     return ProjectionResult(
         engine_version=__version__,
@@ -296,9 +337,9 @@ def run_projection(
             "Federal tax is limited to 2026 MFJ ordinary pension income, Roth conversions, "
             "taxable Social Security, and generated taxable RMDs from modeled sources. "
             "Missouri tax uses a projected 2026 return rate based on the official withholding "
-            "formula. A Medicare/IRMAA calculator exists, but Medicare premium and IRMAA "
-            "cash-flow integration is not implemented. Other-state tax, inherited-IRA, and "
-            "survivor engines are not implemented."
+            "formula. Medicare/IRMAA cash-flow integration excludes appeals, hold-harmless, "
+            "late-enrollment penalties, Extra Help, survivor behavior, and automatic enrollment "
+            "inference. Other-state tax, inherited-IRA, and survivor engines are not implemented."
         ],
         provenance=provenance,
     )
@@ -308,6 +349,82 @@ def _requires_rmd_qcd(people: Sequence[object], accounts: list[AccountInput]) ->
     return bool(people) and any(
         account.account_type in _PRETAX_ACCOUNT_TYPES for account in accounts
     )
+
+
+def _calculate_annual_medicare(
+    request: ProjectionRequest,
+    year: int,
+    completed_irmaa_tax_records: dict[int, IrmaaTaxRecordInput],
+    rules: MedicareIrmaaRules | None,
+) -> AnnualIrmaaResult | None:
+    medicare = request.plan.medicare
+    if medicare is None:
+        return None
+    if not any(_is_enrolled_for_medicare(person, year) for person in medicare.people):
+        return None
+    if rules is None:
+        raise ValueError(f"No applicable Medicare/IRMAA rule dataset exists for {year}")
+    if rules.premium_year != year:
+        raise ValueError(f"Medicare/IRMAA rules for premium year {year} are required")
+    historical = {record.tax_year: record for record in medicare.historical_tax_records}
+    return calculate_annual_irmaa(
+        rules,
+        medicare.people,
+        completed_irmaa_tax_records,
+        historical,
+    )
+
+
+def _is_enrolled_for_medicare(person: MedicarePersonInput, year: int) -> bool:
+    return (
+        person.part_b_enrollment_date is not None and person.part_b_enrollment_date.year <= year
+    ) or (person.part_d_enrollment_date is not None and person.part_d_enrollment_date.year <= year)
+
+
+def _apply_medicare_payments(
+    request: ProjectionRequest,
+    year: int,
+    accounts: dict[str, AccountInput],
+    balances: dict[str, Decimal],
+    activity: dict[str, AccountActivity],
+    result: AnnualIrmaaResult,
+) -> list[TransactionLedgerEntry]:
+    medicare = request.plan.medicare
+    if medicare is None:
+        return []
+    entries: list[TransactionLedgerEntry] = []
+    include_base = medicare.base_premium_mode is MedicareBasePremiumMode.MODELED_SEPARATELY
+    for person in result.people:
+        parts = [
+            ("part-b-irmaa", person.annual_part_b_irmaa),
+            ("part-d-irmaa", person.annual_part_d_irmaa),
+        ]
+        if include_base:
+            parts.extend(
+                [
+                    ("part-b-base", person.annual_part_b_base),
+                    ("part-d-plan", person.annual_part_d_plan),
+                ]
+            )
+        for label, amount in parts:
+            if amount == 0:
+                continue
+            transaction = AnnualTransactionInput(
+                id=f"medicare:{person.owner_id}:{label}:{year}",
+                year=year,
+                transaction_type=TransactionType.MEDICARE_PAYMENT,
+                amount=amount,
+                source_account_id=medicare.premium_payment_account_id,
+            )
+            entry = apply_transaction(
+                transaction,
+                accounts,
+                balances,
+                activity,
+                allow_negative_cash_balance=request.plan.allow_negative_cash_balance,
+            )
+            entries.append(entry)
+    return entries
 
 
 def _apply_annual_rmd_qcd(
@@ -778,6 +895,8 @@ def _validate_projection_generated_transaction_types(
             raise ValueError("RMD distribution transactions are generated by the projection")
         if transaction.transaction_type is TransactionType.MISSOURI_TAX_PAYMENT:
             raise ValueError("Missouri tax payment transactions are generated by the projection")
+        if transaction.transaction_type is TransactionType.MEDICARE_PAYMENT:
+            raise ValueError("Medicare payment transactions are generated by the projection")
         if (
             transaction.transaction_type is TransactionType.CHARITABLE_GIVING
             and transaction.charitable_method is CharitableGivingMethod.QCD
