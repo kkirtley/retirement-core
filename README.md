@@ -4,7 +4,7 @@ Reusable retirement calculation and reporting engine.
 
 ## Stack
 
-- Python 3.13
+- Python 3.14 or later
 - FastAPI
 - Pydantic v2
 - PostgreSQL

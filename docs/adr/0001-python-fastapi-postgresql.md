@@ -4,7 +4,7 @@
 Accepted
 
 ## Decision
-Use Python 3.13 for calculations, FastAPI for the HTTP adapter and PostgreSQL
+Use Python 3.14 or later for calculations, FastAPI for the HTTP adapter and PostgreSQL
 for persistence.
 
 ## Rationale
