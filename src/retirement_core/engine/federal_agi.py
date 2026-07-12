@@ -275,6 +275,13 @@ def supported_federal_ordinary_income_before_social_security(
     return supported_federal_ordinary_income(agi) - agi.federally_taxable_social_security
 
 
+def supported_provisional_income_before_social_security(
+    agi: AnnualFederalAgiResult,
+) -> Decimal:
+    """Currently supported other income for Social Security provisional income."""
+    return supported_federal_ordinary_income_before_social_security(agi) + agi.tax_exempt_interest
+
+
 def _component(
     component_type: FederalAgiComponentType,
     amount: Decimal,

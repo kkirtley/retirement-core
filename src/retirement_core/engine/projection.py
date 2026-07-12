@@ -42,7 +42,7 @@ from retirement_core.domain.tax import AnnualFederalAgiResult
 from retirement_core.engine.federal_agi import (
     build_annual_federal_agi,
     supported_federal_ordinary_income,
-    supported_federal_ordinary_income_before_social_security,
+    supported_provisional_income_before_social_security,
 )
 from retirement_core.engine.federal_tax import calculate_federal_income_tax
 from retirement_core.engine.ledger import (
@@ -895,7 +895,7 @@ def _calculate_annual_federal_tax(
     )
     social_security_taxation = calculate_taxable_social_security(
         gross_social_security,
-        supported_federal_ordinary_income_before_social_security(preliminary_agi),
+        supported_provisional_income_before_social_security(preliminary_agi),
         federal_tax_rules.social_security_taxation,
     )
     federal_agi = build_annual_federal_agi(

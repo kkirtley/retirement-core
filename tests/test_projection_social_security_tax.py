@@ -30,6 +30,8 @@ def _request(
     *,
     social_security: list[dict[str, object]],
     pension: str | None = None,
+    taxable_interest: str | None = None,
+    tax_exempt_interest: str | None = None,
     conversion: str | None = None,
     cash_balance: str = "0",
 ) -> ProjectionRequest:
@@ -81,6 +83,21 @@ def _request(
                 "destination_account_id": "cash",
             }
         )
+    for income_id, income_type, amount in (
+        ("taxable-interest", "taxable_interest", taxable_interest),
+        ("tax-exempt-interest", "tax_exempt_interest", tax_exempt_interest),
+    ):
+        if amount is not None:
+            income.append(
+                {
+                    "id": income_id,
+                    "income_type": income_type,
+                    "owner_id": "spouse_a",
+                    "annual_amount": amount,
+                    "start_date": "2026-01-01",
+                    "destination_account_id": "cash",
+                }
+            )
     return ProjectionRequest.model_validate(
         {
             "plan": {
@@ -162,6 +179,65 @@ def test_social_security_is_spendable_when_not_taxable(
     assert household.social_security_taxation.taxable_social_security == 0
     assert household.taxes == 0
     assert _cash_balance(result) == Decimal("20000.04")
+    _assert_reconciles(result)
+
+
+@pytest.mark.parametrize(
+    ("tax_exempt_interest", "expected_taxable_social_security"),
+    [
+        ("19999", Decimal("0")),
+        ("22000", Decimal("1000")),
+        ("33000", Decimal("6850")),
+    ],
+)
+def test_tax_exempt_interest_enters_social_security_provisional_income(
+    federal_tax_rules: FederalTaxRules,
+    tax_exempt_interest: str,
+    expected_taxable_social_security: Decimal,
+) -> None:
+    result = run_projection(
+        _request(
+            social_security=[_social_security("benefit_a", "spouse_a", "2000")],
+            tax_exempt_interest=tax_exempt_interest,
+        ),
+        federal_tax_rules,
+    )
+    household = result.annual_household[0]
+    taxation = household.social_security_taxation
+    agi = household.federal_agi_result
+
+    assert taxation is not None
+    assert taxation.other_provisional_income == Decimal(tax_exempt_interest)
+    assert taxation.taxable_social_security == expected_taxable_social_security
+    assert agi is not None
+    assert agi.tax_exempt_interest == Decimal(tax_exempt_interest)
+    assert agi.federal_adjusted_gross_income == expected_taxable_social_security
+    assert agi.irmaa_magi == Decimal(tax_exempt_interest) + expected_taxable_social_security
+    _assert_reconciles(result)
+
+
+def test_taxable_and_tax_exempt_interest_both_enter_provisional_income(
+    federal_tax_rules: FederalTaxRules,
+) -> None:
+    result = run_projection(
+        _request(
+            social_security=[_social_security("benefit_a", "spouse_a", "2000")],
+            taxable_interest="10000",
+            tax_exempt_interest="12000",
+        ),
+        federal_tax_rules,
+    )
+    household = result.annual_household[0]
+    taxation = household.social_security_taxation
+    agi = household.federal_agi_result
+
+    assert taxation is not None
+    assert taxation.other_provisional_income == Decimal("22000")
+    assert agi is not None
+    assert agi.taxable_interest == Decimal("10000")
+    assert agi.tax_exempt_interest == Decimal("12000")
+    assert agi.federal_adjusted_gross_income == Decimal("11000")
+    assert agi.irmaa_magi == Decimal("23000")
     _assert_reconciles(result)
 
 
