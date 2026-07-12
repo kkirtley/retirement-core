@@ -2,6 +2,7 @@ from calendar import isleap
 from collections.abc import Sequence
 from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
+from typing import Literal
 
 from retirement_core import __version__
 from retirement_core.domain.enums import (
@@ -109,16 +110,24 @@ def run_projection(
     for year in range(first_year, last_year + 1):
         beginning_balances = balances.copy()
         growth_by_account: dict[str, Decimal] = {}
+        annual_return_by_account: dict[str, Decimal] = {}
+        annual_return_source_by_account: dict[str, Literal["default", "annual_override"]] = {}
         activity = {account_id: AccountActivity() for account_id in accounts}
         growth_period_start, growth_period_end, growth_fraction = _growth_period(plan, year)
 
         # Temporary deterministic timing convention: all annual growth is applied to
         # beginning-of-year balances before any transaction for that year is applied.
         for account_id, account in accounts.items():
+            annual_return = account.annual_return_overrides.get(year, account.annual_return)
+            annual_return_source: Literal["default", "annual_override"] = (
+                "annual_override" if year in account.annual_return_overrides else "default"
+            )
             growth = calculate_growth(
-                beginning_balances[account_id], account.annual_return, growth_fraction
+                beginning_balances[account_id], annual_return, growth_fraction
             )
             growth_by_account[account_id] = growth
+            annual_return_by_account[account_id] = annual_return
+            annual_return_source_by_account[account_id] = annual_return_source
             balances[account_id] += growth
 
         plan_transactions = [
@@ -314,6 +323,8 @@ def run_projection(
                 growth_period_start=growth_period_start,
                 growth_period_end=growth_period_end,
                 growth_fraction=growth_fraction,
+                annual_return_applied=annual_return_by_account[account_id],
+                annual_return_source=annual_return_source_by_account[account_id],
                 ending_balance=balances[account_id],
             )
             reconcile_account(row)

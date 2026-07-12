@@ -26,6 +26,7 @@ from retirement_core.domain.tax import AnnualFederalAgiResult
 
 NonNegativeMoney = Annotated[Decimal, Field(ge=0, decimal_places=2)]
 Percent = Annotated[Decimal, Field(ge=0, le=1)]
+InvestmentReturnRate = Annotated[Decimal, Field(ge=-1)]
 
 
 class PersonInput(BaseModel):
@@ -42,7 +43,8 @@ class AccountInput(BaseModel):
     owner_id: str
     account_type: AccountType
     starting_balance: NonNegativeMoney
-    annual_return: Percent = Decimal("0")
+    annual_return: InvestmentReturnRate = Decimal("0")
+    annual_return_overrides: dict[int, InvestmentReturnRate] = Field(default_factory=dict)
 
 
 class SocialSecurityInput(BaseModel):
@@ -302,8 +304,19 @@ class PlanInput(BaseModel):
     metadata: dict[str, str] = Field(default_factory=dict)
 
     @model_validator(mode="after")
-    def validate_income_schedule(self) -> PlanInput:
+    def validate_plan_schedule(self) -> PlanInput:
         people = {person.id: person for person in self.people}
+        for account in self.accounts:
+            invalid_years = sorted(
+                year
+                for year in account.annual_return_overrides
+                if year < self.start_date.year or year > self.end_date.year
+            )
+            if invalid_years:
+                raise ValueError(
+                    f"Account {account.id} annual_return_overrides outside projection range: "
+                    f"{', '.join(str(year) for year in invalid_years)}"
+                )
         for income in self.income:
             if income.stop_rule is IncomeStopRule.OWNER_RETIREMENT_DATE:
                 owner = people.get(income.owner_id or "")
@@ -353,6 +366,8 @@ class AnnualAccountResult(BaseModel):
     growth_period_start: date | None = None
     growth_period_end: date | None = None
     growth_fraction: Decimal | None = None
+    annual_return_applied: Decimal | None = None
+    annual_return_source: Literal["default", "annual_override"] | None = None
     ending_balance: Decimal
 
 
