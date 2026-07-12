@@ -75,6 +75,7 @@ def _request(
             {
                 "id": "pension",
                 "income_type": "pension",
+                "owner_id": "spouse_a",
                 "annual_amount": pension,
                 "start_date": "2026-01-01",
                 "destination_account_id": "cash",

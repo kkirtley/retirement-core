@@ -265,7 +265,7 @@ def test_unsupported_taxable_income_type_fails(
         income_type="unspecified",
     )
 
-    with pytest.raises(ValueError, match="Federal tax treatment is unsupported"):
+    with pytest.raises(ValueError, match="Federal AGI treatment is unsupported"):
         run_projection(request, federal_tax_rules)
 
 

@@ -21,6 +21,7 @@ from retirement_core.domain.enums import (
     TransactionType,
 )
 from retirement_core.domain.medicare import MedicarePlanInput
+from retirement_core.domain.tax import AnnualFederalAgiResult
 
 NonNegativeMoney = Annotated[Decimal, Field(ge=0, decimal_places=2)]
 Percent = Annotated[Decimal, Field(ge=0, le=1)]
@@ -218,6 +219,7 @@ class AnnualHouseholdResult(BaseModel):
     contributions: Decimal = Decimal("0")
     cash_withdrawals: Decimal = Decimal("0")
     cash_surplus: Decimal
+    federal_agi_result: AnnualFederalAgiResult | None = None
     federal_tax_result: FederalIncomeTaxResult | None = None
     social_security_benefits: tuple[AnnualSocialSecurityBenefit, ...] = ()
     social_security_taxation: SocialSecurityTaxationResult | None = None

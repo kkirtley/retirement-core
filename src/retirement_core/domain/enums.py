@@ -10,6 +10,8 @@ class FilingStatus(StrEnum):
 
 class IncomeType(StrEnum):
     PENSION = "pension"
+    TAXABLE_INTEREST = "taxable_interest"
+    TAX_EXEMPT_INTEREST = "tax_exempt_interest"
     UNSPECIFIED = "unspecified"
 
 
@@ -92,3 +94,17 @@ class DatasetStatus(StrEnum):
 class MedicareBasePremiumMode(StrEnum):
     MODELED_SEPARATELY = "modeled_separately"
     INCLUDED_IN_SPENDING = "included_in_spending"
+
+
+class FederalAgiComponentType(StrEnum):
+    TAXABLE_PENSION = "taxable_pension"
+    TAXABLE_RMD_DISTRIBUTION = "taxable_rmd_distribution"
+    TAXABLE_NON_RMD_IRA_DISTRIBUTION = "taxable_non_rmd_ira_distribution"
+    FEDERALLY_TAXABLE_ROTH_CONVERSION = "federally_taxable_roth_conversion"
+    FEDERALLY_TAXABLE_SOCIAL_SECURITY = "federally_taxable_social_security"
+    TAXABLE_INTEREST = "taxable_interest"
+    TAX_EXEMPT_INTEREST = "tax_exempt_interest"
+    OTHER_SUPPORTED_AGI = "other_supported_agi"
+    ADJUSTMENT_TO_INCOME = "adjustment_to_income"
+    QCD = "qcd"
+    PRETAX_ROLLOVER = "pretax_rollover"

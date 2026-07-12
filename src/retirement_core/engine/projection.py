@@ -29,6 +29,12 @@ from retirement_core.domain.models import (
     SocialSecurityTaxationResult,
     TransactionLedgerEntry,
 )
+from retirement_core.domain.tax import AnnualFederalAgiResult
+from retirement_core.engine.federal_agi import (
+    build_annual_federal_agi,
+    supported_federal_ordinary_income,
+    supported_federal_ordinary_income_before_social_security,
+)
 from retirement_core.engine.federal_tax import calculate_federal_income_tax
 from retirement_core.engine.ledger import (
     calculate_growth,
@@ -138,16 +144,15 @@ def run_projection(
             year_entries.append(entry)
             ledger_entries.append(entry)
 
-        federal_tax_result, social_security_taxation = _calculate_annual_federal_tax(
-            request,
-            year,
-            plan_transactions,
-            sum((entry.taxable_ordinary_income for entry in year_entries), Decimal("0")),
-            sum(
-                (benefit.gross_benefit for benefit in social_security_benefits),
-                Decimal("0"),
-            ),
-            federal_tax_rules,
+        federal_agi_result, federal_tax_result, social_security_taxation = (
+            _calculate_annual_federal_tax(
+                request,
+                year,
+                plan_transactions,
+                year_entries,
+                social_security_benefits,
+                federal_tax_rules,
+            )
         )
         missouri_tax_result = _calculate_annual_missouri_tax(
             request,
@@ -258,6 +263,7 @@ def run_projection(
                 contributions=contributions,
                 cash_withdrawals=cash_withdrawals,
                 cash_surplus=cash_surplus,
+                federal_agi_result=federal_agi_result,
                 federal_tax_result=federal_tax_result,
                 social_security_benefits=tuple(social_security_benefits),
                 social_security_taxation=social_security_taxation,
@@ -682,51 +688,51 @@ def _calculate_annual_federal_tax(
     request: ProjectionRequest,
     year: int,
     plan_transactions: list[AnnualTransactionInput],
-    taxable_rmd: Decimal,
-    gross_social_security: Decimal,
+    year_entries: list[TransactionLedgerEntry],
+    social_security_benefits: list[AnnualSocialSecurityBenefit],
     federal_tax_rules: FederalTaxRules | None,
-) -> tuple[FederalIncomeTaxResult | None, SocialSecurityTaxationResult | None]:
+) -> tuple[
+    AnnualFederalAgiResult | None,
+    FederalIncomeTaxResult | None,
+    SocialSecurityTaxationResult | None,
+]:
     if year != 2026:
-        return None, None
+        return None, None, None
     if federal_tax_rules is None:
         raise ValueError("2026 federal tax rules are required for a 2026 projection")
     if request.plan.filing_status is not FilingStatus.MARRIED_FILING_JOINTLY:
         raise ValueError("Only married-filing-jointly 2026 federal tax is implemented")
 
-    ordinary_income = Decimal("0")
-    for income in request.plan.income:
-        if not (
-            income.start_date.year <= year
-            and (income.end_date is None or income.end_date.year >= year)
-            and income.taxable_federal
-        ):
-            continue
-        if income.income_type is not IncomeType.PENSION:
-            raise ValueError(
-                f"Federal tax treatment is unsupported for income {income.id} "
-                f"of type {income.income_type.value}"
-            )
-        ordinary_income += income.annual_amount
-
-    ordinary_income += sum(
-        (
-            _taxable_conversion_amount(transaction)
-            for transaction in plan_transactions
-            if transaction.transaction_type is TransactionType.ROTH_CONVERSION
-        ),
+    preliminary_agi = build_annual_federal_agi(
+        request,
+        year,
+        year_entries,
+        plan_transactions,
+        social_security_benefits,
+        None,
+    )
+    gross_social_security = sum(
+        (benefit.gross_benefit for benefit in social_security_benefits),
         Decimal("0"),
     )
-    ordinary_income += taxable_rmd
     social_security_taxation = calculate_taxable_social_security(
         gross_social_security,
-        ordinary_income,
+        supported_federal_ordinary_income_before_social_security(preliminary_agi),
         federal_tax_rules.social_security_taxation,
     )
+    federal_agi = build_annual_federal_agi(
+        request,
+        year,
+        year_entries,
+        plan_transactions,
+        social_security_benefits,
+        social_security_taxation,
+    )
     federal_tax = calculate_federal_income_tax(
-        ordinary_income + social_security_taxation.taxable_social_security,
+        supported_federal_ordinary_income(federal_agi),
         federal_tax_rules,
     )
-    return federal_tax, social_security_taxation
+    return federal_agi, federal_tax, social_security_taxation
 
 
 def _taxable_conversion_amount(transaction: AnnualTransactionInput) -> Decimal:

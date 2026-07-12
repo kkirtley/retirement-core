@@ -13,6 +13,7 @@ from retirement_core.domain.medicare import (
     MedicarePersonInput,
     MedicarePersonPremiumResult,
 )
+from retirement_core.domain.tax import AnnualFederalAgiResult
 from retirement_core.rules.models import IrmaaTier, MedicareIrmaaRules
 
 CENT = Decimal("0.01")
@@ -25,6 +26,15 @@ def calculate_irmaa_magi(composition: IrmaaMagiComposition) -> IrmaaTaxRecordInp
         filing_status=composition.filing_status,
         federal_adjusted_gross_income=composition.federal_adjusted_gross_income,
         tax_exempt_interest=composition.tax_exempt_interest,
+    )
+
+
+def irmaa_tax_record_from_annual_agi(agi: AnnualFederalAgiResult) -> IrmaaTaxRecordInput:
+    return IrmaaTaxRecordInput(
+        tax_year=agi.tax_year,
+        filing_status=agi.filing_status,
+        federal_adjusted_gross_income=agi.federal_adjusted_gross_income,
+        tax_exempt_interest=agi.tax_exempt_interest,
     )
 
 
