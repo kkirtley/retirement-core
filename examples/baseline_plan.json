@@ -10,11 +10,12 @@
       {"id": "person_b", "name": "Person B", "date_of_birth": "1967-02-01", "retirement_date": "2032-01-01"}
     ],
     "accounts": [
-      {"id": "person_a_roth", "owner_id": "person_a", "account_type": "roth_ira", "starting_balance": "100000.00", "annual_return": "0.06"}
+      {"id": "person_a_roth", "owner_id": "person_a", "account_type": "roth_ira", "starting_balance": "100000.00", "annual_return": "0.06"},
+      {"id": "household_cash", "owner_id": "person_a", "account_type": "cash", "starting_balance": "0.00"}
     ],
     "social_security": [],
     "income": [
-      {"id": "pension", "owner_id": "person_b", "annual_amount": "5000.00", "start_date": "2033-01-01", "end_date": null, "taxable_federal": true, "taxable_state": true}
+      {"id": "pension", "owner_id": "person_b", "annual_amount": "5000.00", "start_date": "2033-01-01", "end_date": null, "destination_account_id": "household_cash", "taxable_federal": true, "taxable_state": true}
     ],
     "giving_policy": {"target_rate_after_tax_income": "0.10", "qcd_enabled": true},
     "metadata": {}

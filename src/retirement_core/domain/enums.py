@@ -18,6 +18,21 @@ class AccountType(StrEnum):
     CASH = "cash"
 
 
+class TransactionType(StrEnum):
+    INCOME = "income"
+    SPENDING = "spending"
+    CONTRIBUTION = "contribution"
+    WITHDRAWAL = "withdrawal"
+    TRANSFER = "transfer"
+    ROTH_CONVERSION = "roth_conversion"
+    CHARITABLE_GIVING = "charitable_giving"
+
+
+class CharitableGivingMethod(StrEnum):
+    CASH = "cash"
+    QCD = "qcd"
+
+
 class DatasetStatus(StrEnum):
     ENACTED = "enacted"
     PROJECTED = "projected"

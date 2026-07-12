@@ -10,5 +10,7 @@ def test_baseline_projection_reconciles() -> None:
     request = ProjectionRequest.model_validate(payload)
     result = run_projection(request)
     assert result.engine_version == "0.1.0"
-    assert len(result.annual_accounts) == 3
-    assert result.annual_accounts[-1].ending_balance > result.annual_accounts[0].ending_balance
+    roth_results = [row for row in result.annual_accounts if row.account_id == "person_a_roth"]
+    assert len(result.annual_accounts) == 6
+    assert roth_results[-1].ending_balance > roth_results[0].ending_balance
+    assert result.annual_household[-1].cash_surplus == 5000

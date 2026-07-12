@@ -6,7 +6,12 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from retirement_core.domain.enums import AccountType, FilingStatus
+from retirement_core.domain.enums import (
+    AccountType,
+    CharitableGivingMethod,
+    FilingStatus,
+    TransactionType,
+)
 
 NonNegativeMoney = Annotated[Decimal, Field(ge=0, decimal_places=2)]
 Percent = Annotated[Decimal, Field(ge=0, le=1)]
@@ -44,6 +49,7 @@ class IncomeInput(BaseModel):
     annual_amount: NonNegativeMoney
     start_date: date
     end_date: date | None = None
+    destination_account_id: str | None = None
     taxable_federal: bool = True
     taxable_state: bool = True
 
@@ -52,6 +58,17 @@ class GivingPolicyInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     target_rate_after_tax_income: Percent = Decimal("0.10")
     qcd_enabled: bool = True
+
+
+class AnnualTransactionInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    id: str
+    year: int
+    transaction_type: TransactionType
+    amount: NonNegativeMoney
+    source_account_id: str | None = None
+    destination_account_id: str | None = None
+    charitable_method: CharitableGivingMethod | None = None
 
 
 class PlanInput(BaseModel):
@@ -65,7 +82,9 @@ class PlanInput(BaseModel):
     accounts: list[AccountInput]
     social_security: list[SocialSecurityInput] = Field(default_factory=list)
     income: list[IncomeInput] = Field(default_factory=list)
+    transactions: list[AnnualTransactionInput] = Field(default_factory=list)
     giving_policy: GivingPolicyInput = Field(default_factory=GivingPolicyInput)
+    allow_negative_cash_balance: bool = False
     metadata: dict[str, str] = Field(default_factory=dict)
 
 
@@ -86,14 +105,15 @@ class AnnualAccountResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
     year: int
     account_id: str
-    beginning_balance: NonNegativeMoney
+    beginning_balance: Decimal
     investment_return: Decimal
     contributions: Decimal = Decimal("0")
-    inbound_transfers: Decimal = Decimal("0")
+    transfers_in: Decimal = Decimal("0")
     withdrawals: Decimal = Decimal("0")
+    transfers_out: Decimal = Decimal("0")
     roth_conversions: Decimal = Decimal("0")
     qcd: Decimal = Decimal("0")
-    ending_balance: NonNegativeMoney
+    ending_balance: Decimal
 
 
 class AnnualHouseholdResult(BaseModel):
@@ -104,7 +124,24 @@ class AnnualHouseholdResult(BaseModel):
     after_tax_income: Decimal
     giving_target: Decimal
     spending: Decimal
+    contributions: Decimal = Decimal("0")
+    cash_withdrawals: Decimal = Decimal("0")
     cash_surplus: Decimal
+
+
+class TransactionLedgerEntry(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    transaction_id: str
+    year: int
+    transaction_type: TransactionType
+    amount: NonNegativeMoney
+    source_account_id: str | None = None
+    destination_account_id: str | None = None
+    charitable_method: CharitableGivingMethod | None = None
+    spendable_income: Decimal = Decimal("0")
+    cash_withdrawal: Decimal = Decimal("0")
+    spending: Decimal = Decimal("0")
+    contribution: Decimal = Decimal("0")
 
 
 class ProjectionResult(BaseModel):
@@ -114,5 +151,6 @@ class ProjectionResult(BaseModel):
     scenario_id: str
     annual_accounts: list[AnnualAccountResult]
     annual_household: list[AnnualHouseholdResult]
+    transactions: list[TransactionLedgerEntry] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     provenance: dict[str, str] = Field(default_factory=dict)
