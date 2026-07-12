@@ -190,6 +190,14 @@ def apply_transaction(
         federal_tax_payment=federal_tax_payment,
         taxable_ordinary_income=taxable_ordinary_income,
         missouri_tax_payment=missouri_tax_payment,
+        taxable_amount=(
+            transaction.taxable_amount
+            if transaction.taxable_amount is not None
+            else amount
+            if transaction.transaction_type is TransactionType.ROTH_CONVERSION
+            else None
+        ),
+        roth_conversion_method=transaction.roth_conversion_method,
     )
 
 

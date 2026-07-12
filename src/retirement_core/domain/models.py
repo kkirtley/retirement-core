@@ -15,6 +15,7 @@ from retirement_core.domain.enums import (
     QcdAllocationMethod,
     QcdTargetMode,
     ResidencyStatus,
+    RothConversionMethod,
     SocialSecurityBenefitSubtype,
     TaxableRmdAllocationMethod,
     TransactionType,
@@ -140,6 +141,18 @@ class AnnualTransactionInput(BaseModel):
     source_account_id: str | None = None
     destination_account_id: str | None = None
     charitable_method: CharitableGivingMethod | None = None
+    taxable_amount: NonNegativeMoney | None = None
+    roth_conversion_method: RothConversionMethod | None = None
+
+    @model_validator(mode="after")
+    def validate_tax_classification(self) -> AnnualTransactionInput:
+        if self.transaction_type is TransactionType.ROTH_CONVERSION:
+            if self.taxable_amount is not None and self.taxable_amount > self.amount:
+                raise ValueError("Roth conversion taxable amount cannot exceed converted amount")
+            return self
+        if self.taxable_amount is not None or self.roth_conversion_method is not None:
+            raise ValueError("Conversion tax fields are only valid for Roth conversions")
+        return self
 
 
 class PlanInput(BaseModel):
@@ -337,6 +350,8 @@ class TransactionLedgerEntry(BaseModel):
     federal_tax_payment: Decimal = Decimal("0")
     taxable_ordinary_income: Decimal = Decimal("0")
     missouri_tax_payment: Decimal = Decimal("0")
+    taxable_amount: Decimal | None = None
+    roth_conversion_method: RothConversionMethod | None = None
 
 
 class ProjectionResult(BaseModel):

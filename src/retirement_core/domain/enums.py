@@ -18,6 +18,12 @@ class PensionType(StrEnum):
     PRIVATE = "private"
 
 
+class RothConversionMethod(StrEnum):
+    DIRECT = "direct"
+    TRUSTEE_TO_TRUSTEE = "trustee_to_trustee"
+    SIXTY_DAY_ROLLOVER = "sixty_day_rollover"
+
+
 class ResidencyStatus(StrEnum):
     FULL_YEAR_RESIDENT = "full_year_resident"
 

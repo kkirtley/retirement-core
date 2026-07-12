@@ -29,6 +29,17 @@ class MissouriFederalDeductionBand(BaseModel):
     percentage: Rate
 
 
+class MissouriRothConversionRules(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    included_in_missouri_agi: bool
+    income_amount: str
+    private_retirement_subtraction_eligible: bool
+    classification: str
+    status: str
+    dor_conversion_specific_guidance: str
+    review_trigger: str
+
+
 class MissouriTaxRules(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     dataset_id: str
@@ -48,7 +59,7 @@ class MissouriTaxRules(BaseModel):
     private_retirement_maximum_per_owner: NonNegativeDecimal
     private_retirement_combined_threshold: NonNegativeDecimal
     private_retirement_phaseout_rate: Rate
-    roth_conversion_subtraction_supported: bool
+    roth_conversion: MissouriRothConversionRules
     federal_deduction_maximum: NonNegativeDecimal
     federal_deduction_bands: tuple[MissouriFederalDeductionBand, ...]
     component_statuses: dict[str, RuleComponentStatus]

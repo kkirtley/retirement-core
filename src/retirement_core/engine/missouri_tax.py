@@ -15,7 +15,9 @@ class MissouriOwnerIncome(BaseModel):
     date_of_birth: date
     public_pension: Decimal = Field(default=ZERO, ge=0)
     private_pension: Decimal = Field(default=ZERO, ge=0)
+    taxable_ira_withdrawal: Decimal = Field(default=ZERO, ge=0)
     taxable_rmd: Decimal = Field(default=ZERO, ge=0)
+    taxable_roth_conversion: Decimal = Field(default=ZERO, ge=0)
     gross_social_security: Decimal = Field(default=ZERO, ge=0)
     taxable_social_security_retirement: Decimal = Field(default=ZERO, ge=0)
     taxable_social_security_disability: Decimal = Field(default=ZERO, ge=0)
@@ -24,15 +26,12 @@ class MissouriOwnerIncome(BaseModel):
 def calculate_missouri_income_tax(
     owners: tuple[MissouriOwnerIncome, ...],
     federal_income_tax: Decimal,
-    roth_conversions: Decimal,
     rules: MissouriTaxRules,
 ) -> MissouriTaxResult:
     if len(owners) != 2 or len({owner.owner_id for owner in owners}) != 2:
         raise ValueError("Missouri married filing combined requires two distinct owners")
-    if federal_income_tax < 0 or roth_conversions < 0:
-        raise ValueError("Tax and conversion amounts cannot be negative")
-    if roth_conversions > 0 and not rules.roth_conversion_subtraction_supported:
-        raise ValueError("Missouri Roth-conversion subtraction treatment is unsupported")
+    if federal_income_tax < 0:
+        raise ValueError("Federal tax cannot be negative")
     year_end = date(rules.tax_year, 12, 31)
     owner_agi: dict[str, Decimal] = {}
     owner_ss_subtraction: dict[str, Decimal] = {}
@@ -43,7 +42,16 @@ def calculate_missouri_income_tax(
             owner.taxable_social_security_retirement + owner.taxable_social_security_disability
         )
         owner_agi[owner.owner_id] = (
-            owner.public_pension + owner.private_pension + owner.taxable_rmd + taxable_ss
+            owner.public_pension
+            + owner.private_pension
+            + owner.taxable_ira_withdrawal
+            + owner.taxable_rmd
+            + (
+                owner.taxable_roth_conversion
+                if rules.roth_conversion.included_in_missouri_agi
+                else ZERO
+            )
+            + taxable_ss
         )
         age = (
             year_end.year
@@ -68,11 +76,11 @@ def calculate_missouri_income_tax(
             public_cap = max(ZERO, public_cap - ss_subtraction)
         public_subtraction += min(owner.public_pension, public_cap)
         preliminary_private += min(
-            owner.private_pension + owner.taxable_rmd,
+            owner.private_pension + owner.taxable_ira_withdrawal + owner.taxable_rmd,
             rules.private_retirement_maximum_per_owner,
         )
 
-    gross_basis = sum(owner_agi.values(), ZERO) + roth_conversions
+    gross_basis = sum(owner_agi.values(), ZERO)
     social_security_subtraction = sum(owner_ss_subtraction.values(), ZERO)
     private_phaseout_income = max(
         ZERO,

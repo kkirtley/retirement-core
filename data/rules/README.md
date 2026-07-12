@@ -12,6 +12,10 @@ The 2026 Missouri dataset is projected. Its rate component uses Missouri DOR's o
 2026 withholding formula as a retirement-planning estimate, not a final MO-1040 chart.
 Final-tax rounding and combined-return mechanics remain provisionally sourced from the
 2025 MO-1040 instructions until the 2026 instructions confirm or replace them.
+Taxable Roth conversions use a conservative planning interpretation: the federally
+taxable portion enters Missouri AGI but is excluded from the private-retirement
+subtraction under the rollover rule in RSMo 143.124. Review this classification if
+Missouri DOR publishes conversion-specific guidance.
 
 The 2026 federal-tax dataset contains verified married-filing-jointly standard-deduction
 and ordinary-income bracket values from IRS Revenue Procedure 2025-32, plus Social

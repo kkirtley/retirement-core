@@ -43,9 +43,18 @@ def request(
     rmd: bool = False,
     qcd_floor: str | None = None,
     payment_account: str = "cash",
+    conversion: str | None = None,
+    taxable_conversion: str | None = None,
+    conversion_method: str = "direct",
+    pretax_rollover: bool = False,
 ) -> ProjectionRequest:
     accounts: list[dict[str, object]] = [
-        {"id": "cash", "owner_id": "joan", "account_type": "cash", "starting_balance": "0"}
+        {
+            "id": "cash",
+            "owner_id": "joan",
+            "account_type": "cash",
+            "starting_balance": "10000" if conversion is not None else "0",
+        }
     ]
     if payment_account != "cash":
         accounts.append(
@@ -84,6 +93,7 @@ def request(
     giving_policy: dict[str, object] = {"qcd_policy": {"enabled": False}}
     destinations: dict[str, str] = {}
     source_policy: dict[str, object] | None = None
+    transactions: list[dict[str, object]] = []
     if rmd:
         accounts.append(
             {
@@ -103,6 +113,62 @@ def request(
                     "target_mode": "fixed_floor",
                 }
             }
+    if conversion is not None:
+        accounts.extend(
+            [
+                {
+                    "id": "conversion-traditional",
+                    "owner_id": "joan",
+                    "account_type": "traditional_ira",
+                    "starting_balance": conversion,
+                },
+                {
+                    "id": "conversion-roth",
+                    "owner_id": "joan",
+                    "account_type": "roth_ira",
+                    "starting_balance": "0",
+                },
+            ]
+        )
+        transactions.append(
+            {
+                "id": "conversion",
+                "year": 2026,
+                "transaction_type": "roth_conversion",
+                "amount": conversion,
+                "taxable_amount": taxable_conversion,
+                "roth_conversion_method": conversion_method,
+                "source_account_id": "conversion-traditional",
+                "destination_account_id": "conversion-roth",
+            }
+        )
+    if pretax_rollover:
+        accounts.extend(
+            [
+                {
+                    "id": "pretax-one",
+                    "owner_id": "joan",
+                    "account_type": "traditional_ira",
+                    "starting_balance": "10000",
+                },
+                {
+                    "id": "pretax-two",
+                    "owner_id": "joan",
+                    "account_type": "traditional_ira",
+                    "starting_balance": "0",
+                },
+            ]
+        )
+        transactions.append(
+            {
+                "id": "pretax-rollover",
+                "year": 2026,
+                "transaction_type": "transfer",
+                "amount": "10000",
+                "source_account_id": "pretax-one",
+                "destination_account_id": "pretax-two",
+            }
+        )
     return ProjectionRequest.model_validate(
         {
             "plan": {
@@ -112,11 +178,20 @@ def request(
                 "end_date": "2026-12-31",
                 "people": [
                     {"id": "kevin", "name": "Kevin", "date_of_birth": "1950-01-01"},
-                    {"id": "joan", "name": "Joan", "date_of_birth": "1950-01-01"},
+                    {
+                        "id": "joan",
+                        "name": "Joan",
+                        "date_of_birth": (
+                            "1960-01-01"
+                            if conversion is not None or pretax_rollover
+                            else "1950-01-01"
+                        ),
+                    },
                 ],
                 "accounts": accounts,
                 "income": income,
                 "social_security": social,
+                "transactions": transactions,
                 "giving_policy": giving_policy,
                 "taxable_rmd_destination_account_by_owner": destinations,
                 "taxable_rmd_source_policy": source_policy,
@@ -250,3 +325,83 @@ def test_missouri_payment_fails_when_configured_cash_is_insufficient(
 
     with pytest.raises(ValueError, match="would make account state-cash negative"):
         run(projection_request, federal_rules, rmd_rules, missouri_rules)
+
+
+@pytest.mark.parametrize("method", ["direct", "trustee_to_trustee", "sixty_day_rollover"])
+def test_roth_conversion_methods_share_missouri_classification_and_remain_nonspendable(
+    method: str,
+    federal_rules: FederalTaxRules,
+    rmd_rules: RmdQcdRules,
+    missouri_rules: MissouriTaxRules,
+) -> None:
+    result = run(
+        request(conversion="50000", conversion_method=method),
+        federal_rules,
+        rmd_rules,
+        missouri_rules,
+    )
+    household = result.annual_household[0]
+    state = household.missouri_tax_result
+
+    assert state is not None
+    assert state.gross_income_basis == Decimal("50000")
+    assert state.private_retirement_subtraction == 0
+    assert household.federal_tax_result is not None
+    assert household.federal_tax_result.gross_income == Decimal("50000")
+    assert household.gross_income == 0
+    assert household.cash_withdrawals == 0
+    conversion_entry = next(
+        item
+        for item in result.transactions
+        if item.transaction_type is TransactionType.ROTH_CONVERSION
+    )
+    assert conversion_entry.roth_conversion_method == method
+    assert conversion_entry.taxable_amount == Decimal("50000")
+    balances = {item.account_id: item.ending_balance for item in result.annual_accounts}
+    assert balances["conversion-traditional"] == 0
+    assert balances["conversion-roth"] == Decimal("50000")
+    assert_reconciles(result)
+
+
+def test_partially_taxable_conversion_uses_only_taxable_amount(
+    federal_rules: FederalTaxRules,
+    rmd_rules: RmdQcdRules,
+    missouri_rules: MissouriTaxRules,
+) -> None:
+    result = run(
+        request(conversion="50000", taxable_conversion="12000"),
+        federal_rules,
+        rmd_rules,
+        missouri_rules,
+    )
+    household = result.annual_household[0]
+    state = household.missouri_tax_result
+
+    assert state is not None
+    assert state.gross_income_basis == Decimal("12000")
+    assert state.private_retirement_subtraction == 0
+    assert household.federal_tax_result is not None
+    assert household.federal_tax_result.gross_income == Decimal("12000")
+    assert_reconciles(result)
+
+
+def test_pretax_rollover_is_excluded_from_federal_and_missouri_income(
+    federal_rules: FederalTaxRules,
+    rmd_rules: RmdQcdRules,
+    missouri_rules: MissouriTaxRules,
+) -> None:
+    result = run(
+        request(pretax_rollover=True),
+        federal_rules,
+        rmd_rules,
+        missouri_rules,
+    )
+    household = result.annual_household[0]
+    state = household.missouri_tax_result
+
+    assert state is not None
+    assert state.gross_income_basis == 0
+    assert household.federal_tax_result is not None
+    assert household.federal_tax_result.gross_income == 0
+    assert household.gross_income == 0
+    assert_reconciles(result)

@@ -29,7 +29,15 @@
     "private_retirement_maximum_per_owner": "6000.00",
     "private_retirement_combined_threshold": "32000.00",
     "private_retirement_phaseout_rate": "1.00",
-    "roth_conversion_subtraction_supported": false,
+    "roth_conversion": {
+      "included_in_missouri_agi": true,
+      "income_amount": "federally_taxable_conversion_amount",
+      "private_retirement_subtraction_eligible": false,
+      "classification": "excluded_by_RSMo_143.124_rollover_rule",
+      "status": "strong_statutory_interpretation",
+      "dor_conversion_specific_guidance": "not_found",
+      "review_trigger": "Missouri DOR conversion-specific instruction, ruling, or form change"
+    },
     "federal_deduction_maximum": "10000.00",
     "federal_deduction_bands": [
       {"upper_income": "25000.00", "percentage": "0.35"},
@@ -63,8 +71,10 @@
         "authority": "RSMo 143.124 and 143.125"
       },
       "roth_conversion": {
-        "status": "authoritative_treatment_ambiguous_unsupported",
-        "authority": "RSMo 143.124 and current MO-A private pension worksheet"
+        "status": "strong_statutory_interpretation",
+        "authority": "RSMo 143.121; RSMo 143.124 subsections 1, 11, and 13; federal Form 1040 line 4b and Form 8606; current MO-A private pension worksheet",
+        "planning_use": "conservative_interpretation",
+        "review_trigger": "Missouri DOR conversion-specific instruction, ruling, or form change"
       },
       "federal_tax_deduction": {
         "status": "enacted_statute",
@@ -80,9 +90,13 @@
     "retrieved_at": "2026-07-12",
     "effective_date": "2026-01-01",
     "additional_sources": [
+      {"publisher": "Missouri General Assembly", "source_title": "RSMo 143.121", "source_url": "https://revisor.mo.gov/main/OneSection.aspx?section=143.121", "source_reference": "Missouri adjusted gross income begins with federal adjusted gross income"},
       {"publisher": "Missouri General Assembly", "source_title": "RSMo 143.124", "source_url": "https://revisor.mo.gov/main/OneSection.aspx?section=143.124", "source_reference": "Pension and retirement subtractions"},
       {"publisher": "Missouri General Assembly", "source_title": "RSMo 143.125", "source_url": "https://revisor.mo.gov/main/OneSection.aspx?section=143.125", "source_reference": "Social Security subtraction"},
-      {"publisher": "Missouri General Assembly", "source_title": "RSMo 143.171", "source_url": "https://revisor.mo.gov/main/OneSection.aspx?section=143.171", "source_reference": "Federal income tax deduction"}
+      {"publisher": "Missouri General Assembly", "source_title": "RSMo 143.171", "source_url": "https://revisor.mo.gov/main/OneSection.aspx?section=143.171", "source_reference": "Federal income tax deduction"},
+      {"publisher": "Internal Revenue Service", "source_title": "2025 Form 1040 Instructions", "source_url": "https://www.irs.gov/instructions/i1040gi", "source_reference": "Lines 4a and 4b IRA distributions and Roth conversions"},
+      {"publisher": "Internal Revenue Service", "source_title": "2025 Form 8606 Instructions", "source_url": "https://www.irs.gov/instructions/i8606", "source_reference": "Part II taxable Traditional IRA-to-Roth IRA conversions"},
+      {"publisher": "Missouri Department of Revenue", "source_title": "2025 MO-1040 and MO-A Instructions", "source_url": "https://dor.mo.gov/forms/MO-1040%20Instructions_2025.pdf", "source_reference": "MO-A Part 3 private pension worksheet ambiguity"}
     ]
   },
   "projection_assumptions": {}

@@ -595,6 +595,7 @@ def _calculate_annual_missouri_tax(
             "public": Decimal("0"),
             "private": Decimal("0"),
             "rmd": Decimal("0"),
+            "conversion": Decimal("0"),
             "gross_ss": Decimal("0"),
             "retirement_ss": Decimal("0"),
             "disability_ss": Decimal("0"),
@@ -619,6 +620,14 @@ def _calculate_annual_missouri_tax(
     if rmd_qcd_result is not None:
         for owner in rmd_qcd_result.owners:
             components[owner.owner_id]["rmd"] += owner.taxable_rmd
+    account_owners = {account.id: account.owner_id for account in request.plan.accounts}
+    for transaction in plan_transactions:
+        if transaction.transaction_type is not TransactionType.ROTH_CONVERSION:
+            continue
+        owner_id = account_owners.get(transaction.source_account_id or "")
+        if owner_id not in components:
+            raise ValueError(f"Roth conversion {transaction.id} requires an owned source account")
+        components[owner_id]["conversion"] += _taxable_conversion_amount(transaction)
     taxable_social_security = (
         social_security_taxation.taxable_social_security
         if social_security_taxation is not None
@@ -654,24 +663,16 @@ def _calculate_annual_missouri_tax(
             public_pension=components[person.id]["public"],
             private_pension=components[person.id]["private"],
             taxable_rmd=components[person.id]["rmd"],
+            taxable_roth_conversion=components[person.id]["conversion"],
             gross_social_security=components[person.id]["gross_ss"],
             taxable_social_security_retirement=components[person.id]["retirement_ss"],
             taxable_social_security_disability=components[person.id]["disability_ss"],
         )
         for person in request.plan.people
     )
-    roth_conversions = sum(
-        (
-            transaction.amount
-            for transaction in plan_transactions
-            if transaction.transaction_type is TransactionType.ROTH_CONVERSION
-        ),
-        Decimal("0"),
-    )
     return calculate_missouri_income_tax(
         owners,
         federal_tax_result.total_federal_tax,
-        roth_conversions,
         rules,
     )
 
@@ -708,7 +709,7 @@ def _calculate_annual_federal_tax(
 
     ordinary_income += sum(
         (
-            transaction.amount
+            _taxable_conversion_amount(transaction)
             for transaction in plan_transactions
             if transaction.transaction_type is TransactionType.ROTH_CONVERSION
         ),
@@ -725,6 +726,12 @@ def _calculate_annual_federal_tax(
         federal_tax_rules,
     )
     return federal_tax, social_security_taxation
+
+
+def _taxable_conversion_amount(transaction: AnnualTransactionInput) -> Decimal:
+    return (
+        transaction.taxable_amount if transaction.taxable_amount is not None else transaction.amount
+    )
 
 
 def _validate_2026_transaction_tax_treatment(
