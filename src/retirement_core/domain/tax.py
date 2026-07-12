@@ -26,6 +26,7 @@ class AnnualFederalAgiResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     tax_year: int
     filing_status: FilingStatus
+    taxable_wages: NonNegativeMoney = Decimal("0")
     taxable_pension: NonNegativeMoney = Decimal("0")
     taxable_rmd_distributions: NonNegativeMoney = Decimal("0")
     taxable_non_rmd_ira_distributions: NonNegativeMoney = Decimal("0")
@@ -42,7 +43,8 @@ class AnnualFederalAgiResult(BaseModel):
     @property
     def federal_adjusted_gross_income(self) -> Decimal:
         return (
-            self.taxable_pension
+            self.taxable_wages
+            + self.taxable_pension
             + self.taxable_rmd_distributions
             + self.taxable_non_rmd_ira_distributions
             + self.federally_taxable_roth_conversions

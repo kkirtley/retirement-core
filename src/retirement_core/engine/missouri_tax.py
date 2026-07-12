@@ -15,6 +15,7 @@ class MissouriOwnerIncome(BaseModel):
     date_of_birth: date
     public_pension: Decimal = Field(default=ZERO, ge=0)
     private_pension: Decimal = Field(default=ZERO, ge=0)
+    taxable_wages: Decimal = Field(default=ZERO, ge=0)
     taxable_ira_withdrawal: Decimal = Field(default=ZERO, ge=0)
     taxable_rmd: Decimal = Field(default=ZERO, ge=0)
     taxable_roth_conversion: Decimal = Field(default=ZERO, ge=0)
@@ -42,7 +43,8 @@ def calculate_missouri_income_tax(
             owner.taxable_social_security_retirement + owner.taxable_social_security_disability
         )
         owner_agi[owner.owner_id] = (
-            owner.public_pension
+            owner.taxable_wages
+            + owner.public_pension
             + owner.private_pension
             + owner.taxable_ira_withdrawal
             + owner.taxable_rmd

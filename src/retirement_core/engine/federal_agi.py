@@ -13,6 +13,7 @@ from retirement_core.domain.models import (
     AnnualSocialSecurityBenefit,
     AnnualTransactionInput,
     ProjectionRequest,
+    ResolvedAnnualIncome,
     SocialSecurityTaxationResult,
     TransactionLedgerEntry,
 )
@@ -28,6 +29,7 @@ def build_annual_federal_agi(
     plan_transactions: list[AnnualTransactionInput],
     social_security_benefits: list[AnnualSocialSecurityBenefit],
     social_security_taxation: SocialSecurityTaxationResult | None,
+    resolved_income: list[ResolvedAnnualIncome],
 ) -> AnnualFederalAgiResult:
     accounts = {account.id: account for account in request.plan.accounts}
     people = {person.id for person in request.plan.people}
@@ -35,13 +37,14 @@ def build_annual_federal_agi(
     diagnostics: list[str] = []
 
     taxable_pension = Decimal("0")
+    taxable_wages = Decimal("0")
     taxable_interest = Decimal("0")
     tax_exempt_interest = Decimal("0")
 
+    resolved_by_id = {resolved.income_id: resolved for resolved in resolved_income}
     for income in request.plan.income:
-        if not _active_in_year(
-            income.start_date.year, income.end_date.year if income.end_date else None, year
-        ):
+        resolved = resolved_by_id.get(income.id)
+        if resolved is None:
             continue
         if income.owner_id is not None and people and income.owner_id not in people:
             raise ValueError(f"Income {income.id} references unknown owner {income.owner_id}")
@@ -50,11 +53,11 @@ def build_annual_federal_agi(
             case IncomeType.PENSION:
                 _require_owner_for_agi_income(income.id, income.owner_id, people)
                 if income.taxable_federal:
-                    taxable_pension += income.annual_amount
+                    taxable_pension += resolved.taxable_amount
                     components.append(
                         _component(
                             FederalAgiComponentType.TAXABLE_PENSION,
-                            income.annual_amount,
+                            resolved.taxable_amount,
                             owner_id=income.owner_id,
                             included_in_federal_agi=True,
                             included_in_irmaa_magi=True,
@@ -64,11 +67,11 @@ def build_annual_federal_agi(
                     )
             case IncomeType.TAXABLE_INTEREST:
                 _require_owner_for_agi_income(income.id, income.owner_id, people)
-                taxable_interest += income.annual_amount
+                taxable_interest += resolved.taxable_amount
                 components.append(
                     _component(
                         FederalAgiComponentType.TAXABLE_INTEREST,
-                        income.annual_amount,
+                        resolved.taxable_amount,
                         owner_id=income.owner_id,
                         included_in_federal_agi=True,
                         included_in_irmaa_magi=True,
@@ -78,16 +81,42 @@ def build_annual_federal_agi(
                 )
             case IncomeType.TAX_EXEMPT_INTEREST:
                 _require_owner_for_agi_income(income.id, income.owner_id, people)
-                tax_exempt_interest += income.annual_amount
+                tax_exempt_interest += resolved.spendable_cash_amount
                 components.append(
                     _component(
                         FederalAgiComponentType.TAX_EXEMPT_INTEREST,
-                        income.annual_amount,
+                        resolved.spendable_cash_amount,
                         owner_id=income.owner_id,
                         included_in_federal_agi=False,
                         included_in_irmaa_magi=True,
                         source_transaction_ids=(source_transaction_id,),
                         provenance=f"scheduled income {income.id}: tax-exempt interest",
+                    )
+                )
+            case IncomeType.W2_WAGES:
+                _require_owner_for_agi_income(income.id, income.owner_id, people)
+                taxable_wages += resolved.taxable_amount
+                components.append(
+                    _component(
+                        FederalAgiComponentType.TAXABLE_WAGES,
+                        resolved.taxable_amount,
+                        owner_id=income.owner_id,
+                        included_in_federal_agi=True,
+                        included_in_irmaa_magi=True,
+                        source_transaction_ids=(source_transaction_id,),
+                        provenance=f"scheduled income {income.id}: W-2 wages",
+                    )
+                )
+            case IncomeType.VA_DISABILITY:
+                components.append(
+                    _component(
+                        FederalAgiComponentType.OTHER_SUPPORTED_AGI,
+                        resolved.spendable_cash_amount,
+                        owner_id=income.owner_id,
+                        included_in_federal_agi=False,
+                        included_in_irmaa_magi=False,
+                        source_transaction_ids=(source_transaction_id,),
+                        provenance=f"scheduled income {income.id}: VA disability excluded from AGI",
                     )
                 )
             case _:
@@ -215,6 +244,7 @@ def build_annual_federal_agi(
     return AnnualFederalAgiResult(
         tax_year=year,
         filing_status=request.plan.filing_status,
+        taxable_wages=taxable_wages,
         taxable_pension=taxable_pension,
         taxable_rmd_distributions=taxable_rmd,
         taxable_non_rmd_ira_distributions=taxable_non_rmd_ira,
@@ -229,7 +259,8 @@ def build_annual_federal_agi(
 
 def supported_federal_ordinary_income(agi: AnnualFederalAgiResult) -> Decimal:
     return (
-        agi.taxable_pension
+        agi.taxable_wages
+        + agi.taxable_pension
         + agi.taxable_rmd_distributions
         + agi.taxable_non_rmd_ira_distributions
         + agi.federally_taxable_roth_conversions

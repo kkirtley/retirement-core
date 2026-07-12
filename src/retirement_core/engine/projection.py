@@ -1,5 +1,5 @@
 from collections.abc import Sequence
-from datetime import date
+from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 
 from retirement_core import __version__
@@ -7,6 +7,7 @@ from retirement_core.domain.enums import (
     AccountType,
     CharitableGivingMethod,
     FilingStatus,
+    IncomeStopRule,
     IncomeType,
     MedicareBasePremiumMode,
     PensionType,
@@ -29,9 +30,11 @@ from retirement_core.domain.models import (
     AnnualSocialSecurityBenefit,
     AnnualTransactionInput,
     FederalIncomeTaxResult,
+    IncomeInput,
     MissouriTaxResult,
     ProjectionRequest,
     ProjectionResult,
+    ResolvedAnnualIncome,
     SocialSecurityTaxationResult,
     TransactionLedgerEntry,
 )
@@ -143,7 +146,8 @@ def run_projection(
         social_security_benefits, social_security_transactions = _social_security_transactions(
             request, year
         )
-        annual_transactions = _income_transactions(request, year)
+        resolved_income = _resolve_annual_income(request, year)
+        annual_transactions = _income_transactions(resolved_income)
         annual_transactions.extend(social_security_transactions)
         annual_transactions.extend(plan_transactions)
         for transaction in annual_transactions:
@@ -163,6 +167,7 @@ def run_projection(
                 year,
                 plan_transactions,
                 year_entries,
+                resolved_income,
                 social_security_benefits,
                 federal_tax_rules,
             )
@@ -175,18 +180,40 @@ def run_projection(
             social_security_taxation,
             rmd_qcd_result,
             federal_tax_result,
+            resolved_income,
             missouri_tax_rules_by_year.get(year),
         )
-        if federal_tax_result is not None and federal_tax_result.total_federal_tax > 0:
+        federal_withholding = sum(
+            (income.federal_income_tax_withholding for income in resolved_income), Decimal("0")
+        )
+        missouri_withholding = sum(
+            (income.state_income_tax_withholding for income in resolved_income), Decimal("0")
+        )
+        federal_liability = (
+            federal_tax_result.total_federal_tax if federal_tax_result is not None else Decimal("0")
+        )
+        missouri_liability = (
+            missouri_tax_result.total_tax if missouri_tax_result is not None else Decimal("0")
+        )
+        federal_settlement = federal_liability - federal_withholding
+        missouri_settlement = missouri_liability - missouri_withholding
+        if federal_settlement != 0:
             payment_account_id = plan.federal_tax_payment_account_id
             if payment_account_id is None:
-                raise ValueError("A federal_tax_payment_account_id is required for 2026 tax")
+                raise ValueError(
+                    "A federal_tax_payment_account_id is required for 2026 tax settlement"
+                )
             tax_payment = AnnualTransactionInput(
                 id=f"federal-tax:{year}",
                 year=year,
-                transaction_type=TransactionType.FEDERAL_TAX_PAYMENT,
-                amount=federal_tax_result.total_federal_tax,
-                source_account_id=payment_account_id,
+                transaction_type=(
+                    TransactionType.FEDERAL_TAX_PAYMENT
+                    if federal_settlement > 0
+                    else TransactionType.FEDERAL_TAX_REFUND
+                ),
+                amount=abs(federal_settlement),
+                source_account_id=payment_account_id if federal_settlement > 0 else None,
+                destination_account_id=payment_account_id if federal_settlement < 0 else None,
             )
             entry = apply_transaction(
                 tax_payment,
@@ -197,16 +224,21 @@ def run_projection(
             )
             year_entries.append(entry)
             ledger_entries.append(entry)
-        if missouri_tax_result is not None and missouri_tax_result.total_tax > 0:
+        if missouri_settlement != 0:
             payment_account_id = plan.missouri_tax_payment_account_id
             if payment_account_id is None:
-                raise ValueError("A missouri_tax_payment_account_id is required")
+                raise ValueError("A missouri_tax_payment_account_id is required for tax settlement")
             payment = AnnualTransactionInput(
                 id=f"missouri-tax:{year}",
                 year=year,
-                transaction_type=TransactionType.MISSOURI_TAX_PAYMENT,
-                amount=missouri_tax_result.total_tax,
-                source_account_id=payment_account_id,
+                transaction_type=(
+                    TransactionType.MISSOURI_TAX_PAYMENT
+                    if missouri_settlement > 0
+                    else TransactionType.MISSOURI_TAX_REFUND
+                ),
+                amount=abs(missouri_settlement),
+                source_account_id=payment_account_id if missouri_settlement > 0 else None,
+                destination_account_id=payment_account_id if missouri_settlement < 0 else None,
             )
             entry = apply_transaction(
                 payment,
@@ -259,11 +291,17 @@ def run_projection(
         spending = sum((entry.spending for entry in year_entries), Decimal("0"))
         contributions = sum((entry.contribution for entry in year_entries), Decimal("0"))
         federal_tax = sum((entry.federal_tax_payment for entry in year_entries), Decimal("0"))
+        federal_tax_refund = sum((entry.federal_tax_refund for entry in year_entries), Decimal("0"))
         missouri_tax = sum((entry.missouri_tax_payment for entry in year_entries), Decimal("0"))
+        missouri_tax_refund = sum(
+            (entry.missouri_tax_refund for entry in year_entries), Decimal("0")
+        )
         medicare_costs = sum((entry.medicare_payment for entry in year_entries), Decimal("0"))
         cash_surplus = (
             spendable_income
             + cash_withdrawals
+            + federal_tax_refund
+            + missouri_tax_refund
             - spending
             - contributions
             - federal_tax
@@ -278,11 +316,13 @@ def run_projection(
             cash_surplus,
             federal_tax=federal_tax,
             missouri_tax=missouri_tax,
+            federal_tax_refunds=federal_tax_refund,
+            missouri_tax_refunds=missouri_tax_refund,
             medicare_costs=medicare_costs,
         )
 
         total_taxes = federal_tax + missouri_tax
-        after_tax = spendable_income - total_taxes
+        after_tax = spendable_income - total_taxes + federal_tax_refund + missouri_tax_refund
         giving_target = (
             max(after_tax, Decimal("0")) * plan.giving_policy.target_rate_after_tax_income
         ).quantize(Decimal("0.01"))
@@ -291,6 +331,14 @@ def run_projection(
                 year=year,
                 gross_income=spendable_income,
                 taxes=total_taxes,
+                total_federal_liability=federal_liability,
+                total_missouri_liability=missouri_liability,
+                federal_withholding=federal_withholding,
+                missouri_withholding=missouri_withholding,
+                federal_tax_payment=federal_tax,
+                missouri_tax_payment=missouri_tax,
+                federal_tax_refund=federal_tax_refund,
+                missouri_tax_refund=missouri_tax_refund,
                 after_tax_income=after_tax,
                 giving_target=giving_target,
                 spending=spending,
@@ -305,6 +353,7 @@ def run_projection(
                 rmd_qcd_result=rmd_qcd_result,
                 missouri_tax_result=missouri_tax_result,
                 irmaa_result=irmaa_result,
+                resolved_income=tuple(resolved_income),
             )
         )
         if federal_agi_result is not None:
@@ -700,6 +749,7 @@ def _calculate_annual_missouri_tax(
     social_security_taxation: SocialSecurityTaxationResult | None,
     rmd_qcd_result: AnnualRmdQcdResult | None,
     federal_tax_result: FederalIncomeTaxResult | None,
+    resolved_income: list[ResolvedAnnualIncome],
     rules: MissouriTaxRules | None,
 ) -> MissouriTaxResult | None:
     residency = request.plan.state_residency
@@ -718,6 +768,7 @@ def _calculate_annual_missouri_tax(
         person.id: {
             "public": Decimal("0"),
             "private": Decimal("0"),
+            "wages": Decimal("0"),
             "rmd": Decimal("0"),
             "conversion": Decimal("0"),
             "gross_ss": Decimal("0"),
@@ -726,13 +777,14 @@ def _calculate_annual_missouri_tax(
         }
         for person in request.plan.people
     }
+    resolved_by_id = {income.income_id: income for income in resolved_income}
     for income in request.plan.income:
-        if not (
-            income.start_date.year <= year
-            and (income.end_date is None or income.end_date.year >= year)
-            and income.income_type is IncomeType.PENSION
-            and income.taxable_federal
-            and income.taxable_state
+        resolved = resolved_by_id.get(income.id)
+        if (
+            resolved is None
+            or income.income_type is not IncomeType.PENSION
+            or income.taxable_federal is not True
+            or income.taxable_state is not True
         ):
             continue
         if income.owner_id not in people or income.pension_type is None:
@@ -740,7 +792,13 @@ def _calculate_annual_missouri_tax(
                 f"Missouri pension {income.id} requires an owner and public/private pension_type"
             )
         key = "public" if income.pension_type is PensionType.PUBLIC else "private"
-        components[income.owner_id][key] += income.annual_amount
+        components[income.owner_id][key] += resolved.taxable_amount
+    for resolved in resolved_income:
+        if resolved.income_type is not IncomeType.W2_WAGES:
+            continue
+        if resolved.owner_id not in people:
+            raise ValueError(f"Missouri wages {resolved.income_id} require an owner")
+        components[resolved.owner_id]["wages"] += resolved.taxable_amount
     if rmd_qcd_result is not None:
         for owner in rmd_qcd_result.owners:
             components[owner.owner_id]["rmd"] += owner.taxable_rmd
@@ -784,6 +842,7 @@ def _calculate_annual_missouri_tax(
         MissouriOwnerIncome(
             owner_id=person.id,
             date_of_birth=person.date_of_birth,
+            taxable_wages=components[person.id]["wages"],
             public_pension=components[person.id]["public"],
             private_pension=components[person.id]["private"],
             taxable_rmd=components[person.id]["rmd"],
@@ -806,6 +865,7 @@ def _calculate_annual_federal_tax(
     year: int,
     plan_transactions: list[AnnualTransactionInput],
     year_entries: list[TransactionLedgerEntry],
+    resolved_income: list[ResolvedAnnualIncome],
     social_security_benefits: list[AnnualSocialSecurityBenefit],
     federal_tax_rules: FederalTaxRules | None,
 ) -> tuple[
@@ -827,6 +887,7 @@ def _calculate_annual_federal_tax(
         plan_transactions,
         social_security_benefits,
         None,
+        resolved_income,
     )
     gross_social_security = sum(
         (benefit.gross_benefit for benefit in social_security_benefits),
@@ -844,6 +905,7 @@ def _calculate_annual_federal_tax(
         plan_transactions,
         social_security_benefits,
         social_security_taxation,
+        resolved_income,
     )
     federal_tax = calculate_federal_income_tax(
         supported_federal_ordinary_income(federal_agi),
@@ -944,21 +1006,125 @@ def _social_security_transactions(
     return benefits, transactions
 
 
-def _income_transactions(request: ProjectionRequest, year: int) -> list[AnnualTransactionInput]:
+def _income_transactions(
+    resolved_income: list[ResolvedAnnualIncome],
+) -> list[AnnualTransactionInput]:
     transactions: list[AnnualTransactionInput] = []
-    for income in request.plan.income:
-        if income.start_date.year <= year and (
-            income.end_date is None or income.end_date.year >= year
-        ):
-            if income.destination_account_id is None:
-                raise ValueError(f"Income {income.id} requires a destination cash account")
-            transactions.append(
-                AnnualTransactionInput(
-                    id=f"income:{income.id}:{year}",
-                    year=year,
-                    transaction_type=TransactionType.INCOME,
-                    amount=income.annual_amount,
-                    destination_account_id=income.destination_account_id,
-                )
+    for income in resolved_income:
+        if income.spendable_cash_amount == 0:
+            continue
+        transactions.append(
+            AnnualTransactionInput(
+                id=f"income:{income.income_id}:{income.year}",
+                year=income.year,
+                transaction_type=TransactionType.INCOME,
+                amount=income.spendable_cash_amount,
+                destination_account_id=income.destination_account_id,
+                income_taxable_amount=income.taxable_amount,
+                federal_income_tax_withholding=income.federal_income_tax_withholding,
+                state_income_tax_withholding=income.state_income_tax_withholding,
+                payroll_deductions_embedded_in_cash=income.payroll_deductions_embedded_in_cash,
+                assumption_source=income.assumption_source,
             )
+        )
     return transactions
+
+
+def _resolve_annual_income(request: ProjectionRequest, year: int) -> list[ResolvedAnnualIncome]:
+    """Resolve income without mutating plan inputs; overrides trump annual amounts."""
+    plan = request.plan
+    full_calendar_year = date(year, 1, 1) >= plan.start_date and date(year, 12, 31) <= plan.end_date
+    resolved: list[ResolvedAnnualIncome] = []
+    owners = {person.id: person for person in plan.people}
+    for income in plan.income:
+        end_date = (
+            income.end_date
+            if income.stop_rule is IncomeStopRule.EXPLICIT_END_DATE
+            else owners[income.owner_id].retirement_date
+            if (
+                income.stop_rule is IncomeStopRule.OWNER_RETIREMENT_DATE
+                and income.owner_id in owners
+            )
+            else None
+        )
+        if year < income.start_date.year or (end_date is not None and year > end_date.year):
+            continue
+        if income.income_type is IncomeType.SELF_EMPLOYMENT_NET_INCOME:
+            raise ValueError(
+                "SELF_EMPLOYMENT_NET_INCOME is unsupported until SE tax is implemented"
+            )
+        if income.destination_account_id is None:
+            raise ValueError(f"Income {income.id} requires a destination cash account")
+        override = income.annual_overrides.get(year)
+        if override is not None:
+            taxable = override.taxable_amount
+            cash = override.spendable_cash_amount
+            federal_withholding = override.federal_income_tax_withholding
+            state_withholding = override.state_income_tax_withholding
+            payroll_note = override.payroll_deductions_embedded_in_cash
+            source = override.assumption_source or income.assumption_source
+        else:
+            taxable = income.annual_taxable_amount or Decimal("0")
+            cash = income.annual_spendable_cash_amount or Decimal("0")
+            federal_withholding = income.annual_federal_income_tax_withholding
+            state_withholding = income.annual_state_income_tax_withholding
+            payroll_note = income.payroll_deductions_embedded_in_cash
+            source = income.assumption_source
+            if full_calendar_year and _requires_monthly_proration(income, end_date, year):
+                if _has_partial_boundary_month(income.start_date, end_date, year):
+                    raise ValueError(
+                        f"Income {income.id} requires an annual override for "
+                        "a mid-month start or stop"
+                    )
+                months = _active_months(income.start_date, end_date, year)
+                factor = Decimal(months) / Decimal("12")
+                taxable = (taxable * factor).quantize(_CENT, rounding=ROUND_HALF_UP)
+                cash = (cash * factor).quantize(_CENT, rounding=ROUND_HALF_UP)
+                federal_withholding = (federal_withholding * factor).quantize(
+                    _CENT, rounding=ROUND_HALF_UP
+                )
+                state_withholding = (state_withholding * factor).quantize(
+                    _CENT, rounding=ROUND_HALF_UP
+                )
+        resolved.append(
+            ResolvedAnnualIncome(
+                income_id=income.id,
+                year=year,
+                owner_id=income.owner_id,
+                income_type=income.income_type,
+                taxable_amount=taxable,
+                spendable_cash_amount=cash,
+                federal_income_tax_withholding=federal_withholding,
+                state_income_tax_withholding=state_withholding,
+                payroll_deductions_embedded_in_cash=payroll_note,
+                assumption_source=source,
+                destination_account_id=income.destination_account_id,
+            )
+        )
+    return resolved
+
+
+def _requires_monthly_proration(
+    income: IncomeInput,
+    end_date: date | None,
+    year: int,
+) -> bool:
+    return income.start_date.year == year or (end_date is not None and end_date.year == year)
+
+
+def _active_months(start_date: date, end_date: date | None, year: int) -> int:
+    return sum(
+        1
+        for month in range(1, 13)
+        if date(year, month, 1) >= start_date
+        and (end_date is None or date(year, month, 1) <= end_date)
+    )
+
+
+def _has_partial_boundary_month(start_date: date, end_date: date | None, year: int) -> bool:
+    if start_date.year == year and start_date.day != 1:
+        return True
+    if end_date is None or end_date.year != year:
+        return False
+    next_day = end_date + timedelta(days=1)
+    return next_day.month == end_date.month

@@ -29,11 +29,15 @@ def reconcile_household_cash(
     cash_surplus: Decimal,
     federal_tax: Decimal = Decimal("0"),
     missouri_tax: Decimal = Decimal("0"),
+    federal_tax_refunds: Decimal = Decimal("0"),
+    missouri_tax_refunds: Decimal = Decimal("0"),
     medicare_costs: Decimal = Decimal("0"),
 ) -> None:
     expected = (
         spendable_income
         + cash_withdrawals
+        + federal_tax_refunds
+        + missouri_tax_refunds
         - spending
         - contributions
         - federal_tax

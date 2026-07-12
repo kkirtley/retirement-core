@@ -10,6 +10,7 @@ from retirement_core.domain.enums import (
     AccountType,
     CharitableGivingMethod,
     FilingStatus,
+    IncomeStopRule,
     IncomeType,
     PensionType,
     QcdAllocationMethod,
@@ -55,18 +56,134 @@ class SocialSecurityInput(BaseModel):
     destination_account_id: str
 
 
+class AssumptionSource(BaseModel):
+    """Lightweight provenance for household-provided planning assumptions."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    source_type: str | None = None
+    description: str | None = None
+    as_of_date: date | None = None
+
+
+class AnnualIncomeOverride(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    taxable_amount: NonNegativeMoney
+    spendable_cash_amount: NonNegativeMoney
+    federal_income_tax_withholding: NonNegativeMoney = Decimal("0")
+    state_income_tax_withholding: NonNegativeMoney = Decimal("0")
+    payroll_deductions_embedded_in_cash: str | None = None
+    assumption_source: AssumptionSource | None = None
+
+
+class ResolvedAnnualIncome(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    income_id: str
+    year: int
+    owner_id: str | None = None
+    income_type: IncomeType
+    taxable_amount: Decimal
+    spendable_cash_amount: Decimal
+    federal_income_tax_withholding: Decimal
+    state_income_tax_withholding: Decimal
+    payroll_deductions_embedded_in_cash: str | None = None
+    assumption_source: AssumptionSource | None = None
+    destination_account_id: str
+
+
 class IncomeInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     id: str
     income_type: IncomeType = IncomeType.UNSPECIFIED
     pension_type: PensionType | None = None
     owner_id: str | None = None
-    annual_amount: NonNegativeMoney
+    annual_amount: NonNegativeMoney | None = None
+    annual_taxable_amount: NonNegativeMoney | None = None
+    annual_spendable_cash_amount: NonNegativeMoney | None = None
+    annual_federal_income_tax_withholding: NonNegativeMoney = Decimal("0")
+    annual_state_income_tax_withholding: NonNegativeMoney = Decimal("0")
+    payroll_deductions_embedded_in_cash: str | None = None
+    assumption_source: AssumptionSource | None = None
+    annual_overrides: dict[int, AnnualIncomeOverride] = Field(default_factory=dict)
     start_date: date
+    stop_rule: IncomeStopRule | None = None
     end_date: date | None = None
     destination_account_id: str | None = None
-    taxable_federal: bool = True
-    taxable_state: bool = True
+    taxable_federal: bool | None = None
+    taxable_state: bool | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_legacy_income(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+        data = dict(value)
+        income_type = data.get("income_type", IncomeType.UNSPECIFIED)
+        if data.get("stop_rule") is None:
+            data["stop_rule"] = (
+                IncomeStopRule.EXPLICIT_END_DATE
+                if data.get("end_date") is not None
+                else IncomeStopRule.CONTINUES_FOR_LIFE
+            )
+        if income_type in {
+            IncomeType.PENSION.value,
+            IncomeType.PENSION,
+            IncomeType.W2_WAGES.value,
+            IncomeType.W2_WAGES,
+        }:
+            data.setdefault("taxable_federal", True)
+            data.setdefault("taxable_state", True)
+        elif income_type in {IncomeType.VA_DISABILITY.value, IncomeType.VA_DISABILITY}:
+            data.setdefault("taxable_federal", False)
+            data.setdefault("taxable_state", False)
+        else:
+            data.setdefault("taxable_federal", True)
+            data.setdefault("taxable_state", True)
+        legacy_amount = data.get("annual_amount")
+        if legacy_amount is not None:
+            if income_type == IncomeType.TAX_EXEMPT_INTEREST.value:
+                data.setdefault("annual_taxable_amount", "0")
+                data.setdefault("annual_spendable_cash_amount", legacy_amount)
+            elif income_type not in {IncomeType.W2_WAGES.value, IncomeType.VA_DISABILITY.value}:
+                data.setdefault(
+                    "annual_taxable_amount",
+                    legacy_amount if data["taxable_federal"] else "0",
+                )
+                data.setdefault("annual_spendable_cash_amount", legacy_amount)
+        return data
+
+    @model_validator(mode="after")
+    def validate_income_type(self) -> IncomeInput:
+        if self.stop_rule is IncomeStopRule.EXPLICIT_END_DATE and self.end_date is None:
+            raise ValueError("EXPLICIT_END_DATE requires end_date")
+        if self.stop_rule is IncomeStopRule.CONTINUES_FOR_LIFE and self.end_date is not None:
+            raise ValueError("CONTINUES_FOR_LIFE forbids end_date")
+        if self.annual_taxable_amount is None or self.annual_spendable_cash_amount is None:
+            raise ValueError(f"Income {self.id} requires taxable and spendable annual amounts")
+        if self.income_type is IncomeType.W2_WAGES and (
+            self.taxable_federal is not True or self.taxable_state is not True
+        ):
+            raise ValueError("W2_WAGES must be federally and Missouri taxable")
+        if self.income_type is IncomeType.VA_DISABILITY:
+            if self.taxable_federal is not False or self.taxable_state is not False:
+                raise ValueError("VA_DISABILITY must be federally and Missouri exempt")
+            if self.annual_taxable_amount != 0:
+                raise ValueError("VA_DISABILITY taxable amount must be zero")
+            if (
+                self.annual_federal_income_tax_withholding != 0
+                or self.annual_state_income_tax_withholding != 0
+            ):
+                raise ValueError("VA_DISABILITY withholding must be zero")
+            for year, override in self.annual_overrides.items():
+                if override.taxable_amount != 0:
+                    raise ValueError(
+                        f"VA_DISABILITY override for {year} taxable amount must be zero"
+                    )
+                if (
+                    override.federal_income_tax_withholding != 0
+                    or override.state_income_tax_withholding != 0
+                ):
+                    raise ValueError(f"VA_DISABILITY override for {year} withholding must be zero")
+        return self
 
 
 class AnnualQcdOverride(BaseModel):
@@ -145,6 +262,11 @@ class AnnualTransactionInput(BaseModel):
     charitable_method: CharitableGivingMethod | None = None
     taxable_amount: NonNegativeMoney | None = None
     roth_conversion_method: RothConversionMethod | None = None
+    income_taxable_amount: NonNegativeMoney | None = None
+    federal_income_tax_withholding: NonNegativeMoney = Decimal("0")
+    state_income_tax_withholding: NonNegativeMoney = Decimal("0")
+    payroll_deductions_embedded_in_cash: str | None = None
+    assumption_source: AssumptionSource | None = None
 
     @model_validator(mode="after")
     def validate_tax_classification(self) -> AnnualTransactionInput:
@@ -179,6 +301,29 @@ class PlanInput(BaseModel):
     allow_negative_cash_balance: bool = False
     metadata: dict[str, str] = Field(default_factory=dict)
 
+    @model_validator(mode="after")
+    def validate_income_schedule(self) -> PlanInput:
+        people = {person.id: person for person in self.people}
+        for income in self.income:
+            if income.stop_rule is IncomeStopRule.OWNER_RETIREMENT_DATE:
+                owner = people.get(income.owner_id or "")
+                if owner is None or owner.retirement_date is None:
+                    raise ValueError(
+                        f"Income {income.id} OWNER_RETIREMENT_DATE requires "
+                        "an owner retirement_date"
+                    )
+            if (
+                (self.start_date.month != 1 or self.start_date.day != 1)
+                and income.start_date < self.start_date
+                and _income_active_on(income, self.start_date, people)
+                and self.start_date.year not in income.annual_overrides
+            ):
+                raise ValueError(
+                    f"Income {income.id} requires an annual override for partial "
+                    f"first projection year {self.start_date.year}"
+                )
+        return self
+
 
 class RunOptions(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -212,7 +357,17 @@ class AnnualHouseholdResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
     year: int
     gross_income: Decimal
-    taxes: Decimal
+    taxes: Decimal = Field(
+        description="Additional cash tax payments only; excludes withholding and refunds."
+    )
+    total_federal_liability: Decimal = Decimal("0")
+    total_missouri_liability: Decimal = Decimal("0")
+    federal_withholding: Decimal = Decimal("0")
+    missouri_withholding: Decimal = Decimal("0")
+    federal_tax_payment: Decimal = Decimal("0")
+    missouri_tax_payment: Decimal = Decimal("0")
+    federal_tax_refund: Decimal = Decimal("0")
+    missouri_tax_refund: Decimal = Decimal("0")
     after_tax_income: Decimal
     giving_target: Decimal
     spending: Decimal
@@ -227,6 +382,7 @@ class AnnualHouseholdResult(BaseModel):
     rmd_qcd_result: AnnualRmdQcdResult | None = None
     missouri_tax_result: MissouriTaxResult | None = None
     irmaa_result: AnnualIrmaaResult | None = None
+    resolved_income: tuple[ResolvedAnnualIncome, ...] = ()
 
 
 class AnnualRmdAccountResult(BaseModel):
@@ -354,11 +510,34 @@ class TransactionLedgerEntry(BaseModel):
     spending: Decimal = Decimal("0")
     contribution: Decimal = Decimal("0")
     federal_tax_payment: Decimal = Decimal("0")
+    federal_tax_refund: Decimal = Decimal("0")
+    federal_income_tax_withholding: Decimal = Decimal("0")
     taxable_ordinary_income: Decimal = Decimal("0")
     missouri_tax_payment: Decimal = Decimal("0")
+    missouri_tax_refund: Decimal = Decimal("0")
+    state_income_tax_withholding: Decimal = Decimal("0")
     medicare_payment: Decimal = Decimal("0")
     taxable_amount: Decimal | None = None
     roth_conversion_method: RothConversionMethod | None = None
+
+
+def _income_active_on(
+    income: IncomeInput,
+    on_date: date,
+    people: dict[str, PersonInput],
+) -> bool:
+    if on_date < income.start_date:
+        return False
+    if income.stop_rule is IncomeStopRule.EXPLICIT_END_DATE:
+        return income.end_date is not None and on_date <= income.end_date
+    if income.stop_rule is IncomeStopRule.OWNER_RETIREMENT_DATE:
+        owner = people.get(income.owner_id or "")
+        return (
+            owner is not None
+            and owner.retirement_date is not None
+            and on_date <= owner.retirement_date
+        )
+    return True
 
 
 class ProjectionResult(BaseModel):

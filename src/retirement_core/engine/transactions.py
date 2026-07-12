@@ -51,7 +51,11 @@ def apply_transaction(
     spending = Decimal("0")
     contribution = Decimal("0")
     federal_tax_payment = Decimal("0")
+    federal_tax_refund = Decimal("0")
+    federal_income_tax_withholding = Decimal("0")
     missouri_tax_payment = Decimal("0")
+    missouri_tax_refund = Decimal("0")
+    state_income_tax_withholding = Decimal("0")
     medicare_payment = Decimal("0")
     taxable_ordinary_income = Decimal("0")
     charitable_method = transaction.charitable_method
@@ -65,6 +69,8 @@ def apply_transaction(
             credit(destination)
             activity[destination.id].contributions += amount
             spendable_income = amount
+            federal_income_tax_withholding = transaction.federal_income_tax_withholding
+            state_income_tax_withholding = transaction.state_income_tax_withholding
         case TransactionType.SPENDING:
             _require_absent(destination, "Spending cannot have a destination account")
             source = _require_type(source, {AccountType.CASH}, "Spending source must be cash")
@@ -153,6 +159,14 @@ def apply_transaction(
             debit(source)
             activity[source.id].withdrawals += amount
             federal_tax_payment = amount
+        case TransactionType.FEDERAL_TAX_REFUND:
+            _require_absent(source, "Federal tax refund cannot have a source account")
+            destination = _require_type(
+                destination, {AccountType.CASH}, "Federal tax refund destination must be cash"
+            )
+            credit(destination)
+            activity[destination.id].contributions += amount
+            federal_tax_refund = amount
         case TransactionType.MISSOURI_TAX_PAYMENT:
             _require_absent(destination, "Missouri tax payment cannot have a destination account")
             source = _require_type(
@@ -161,6 +175,14 @@ def apply_transaction(
             debit(source)
             activity[source.id].withdrawals += amount
             missouri_tax_payment = amount
+        case TransactionType.MISSOURI_TAX_REFUND:
+            _require_absent(source, "Missouri tax refund cannot have a source account")
+            destination = _require_type(
+                destination, {AccountType.CASH}, "Missouri tax refund destination must be cash"
+            )
+            credit(destination)
+            activity[destination.id].contributions += amount
+            missouri_tax_refund = amount
         case TransactionType.MEDICARE_PAYMENT:
             _require_absent(destination, "Medicare payment cannot have a destination account")
             source = _require_type(
@@ -197,8 +219,12 @@ def apply_transaction(
         spending=spending,
         contribution=contribution,
         federal_tax_payment=federal_tax_payment,
+        federal_tax_refund=federal_tax_refund,
+        federal_income_tax_withholding=federal_income_tax_withholding,
         taxable_ordinary_income=taxable_ordinary_income,
         missouri_tax_payment=missouri_tax_payment,
+        missouri_tax_refund=missouri_tax_refund,
+        state_income_tax_withholding=state_income_tax_withholding,
         medicare_payment=medicare_payment,
         taxable_amount=(
             transaction.taxable_amount

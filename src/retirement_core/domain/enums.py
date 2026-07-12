@@ -10,9 +10,18 @@ class FilingStatus(StrEnum):
 
 class IncomeType(StrEnum):
     PENSION = "pension"
+    W2_WAGES = "w2_wages"
+    VA_DISABILITY = "va_disability"
+    SELF_EMPLOYMENT_NET_INCOME = "self_employment_net_income"
     TAXABLE_INTEREST = "taxable_interest"
     TAX_EXEMPT_INTEREST = "tax_exempt_interest"
     UNSPECIFIED = "unspecified"
+
+
+class IncomeStopRule(StrEnum):
+    EXPLICIT_END_DATE = "explicit_end_date"
+    OWNER_RETIREMENT_DATE = "owner_retirement_date"
+    CONTINUES_FOR_LIFE = "continues_for_life"
 
 
 class PensionType(StrEnum):
@@ -75,9 +84,11 @@ class TransactionType(StrEnum):
     ROTH_CONVERSION = "roth_conversion"
     CHARITABLE_GIVING = "charitable_giving"
     FEDERAL_TAX_PAYMENT = "federal_tax_payment"
+    FEDERAL_TAX_REFUND = "federal_tax_refund"
     SOCIAL_SECURITY_INCOME = "social_security_income"
     RMD_DISTRIBUTION = "rmd_distribution"
     MISSOURI_TAX_PAYMENT = "missouri_tax_payment"
+    MISSOURI_TAX_REFUND = "missouri_tax_refund"
     MEDICARE_PAYMENT = "medicare_payment"
 
 
@@ -98,6 +109,7 @@ class MedicareBasePremiumMode(StrEnum):
 
 
 class FederalAgiComponentType(StrEnum):
+    TAXABLE_WAGES = "taxable_wages"
     TAXABLE_PENSION = "taxable_pension"
     TAXABLE_RMD_DISTRIBUTION = "taxable_rmd_distribution"
     TAXABLE_NON_RMD_IRA_DISTRIBUTION = "taxable_non_rmd_ira_distribution"
