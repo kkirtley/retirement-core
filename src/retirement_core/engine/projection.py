@@ -290,8 +290,9 @@ def run_projection(
             "Federal tax is limited to 2026 MFJ ordinary pension income, Roth conversions, "
             "taxable Social Security, and generated taxable RMDs from modeled sources. "
             "Missouri tax uses a projected 2026 return rate based on the official withholding "
-            "formula. Medicare, IRMAA, other-state tax, inherited-IRA, and survivor engines "
-            "are not implemented."
+            "formula. A Medicare/IRMAA calculator exists, but Medicare premium and IRMAA "
+            "cash-flow integration is not implemented. Other-state tax, inherited-IRA, and "
+            "survivor engines are not implemented."
         ],
         provenance=provenance,
     )

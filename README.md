@@ -36,6 +36,10 @@ The engine contains algorithms. Tax brackets, deductions, RMD tables, IRMAA
 thresholds, Medicare premiums, and similar regulatory values live in versioned
 data files or database datasets.
 
+The current Medicare/IRMAA foundation supports pure Part B and Part D IRMAA
+calculation with premium-year rules and a two-year MAGI lookback; projection
+cash-flow integration is not implemented yet.
+
 ## Quick start
 
 ```bash

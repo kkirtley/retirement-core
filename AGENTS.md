@@ -19,6 +19,8 @@ The project currently provides:
   and taxable Social Security benefits
 - Owner-specific RMD and configurable QCD projection processing
 - Projected 2026 Missouri married-filing-combined retirement-income tax
+- Medicare Part B and Part D IRMAA pure calculation foundation with premium-year
+  rules and two-year MAGI lookback support
 - Immutable transaction inputs and generated ledger results
 - A FastAPI adapter
 - PostgreSQL models and Alembic migration scaffolding
@@ -29,8 +31,9 @@ The current deterministic timing convention applies annual growth to
 beginning-of-year balances, followed by generated income and declared transactions.
 
 Federal tax outside the supported 2026 MFJ scope, state tax outside the projected 2026
-Missouri scope, Medicare IRMAA, survivor logic, optimization, reporting exports, and
-frontend behavior are not implemented.
+Missouri scope, Medicare/IRMAA annual projection and cash-payment integration,
+survivor logic, optimization, reporting exports, and frontend behavior are not
+implemented.
 
 ## Repository structure
 
@@ -89,7 +92,8 @@ Future work may add:
 - Additional federal and state income-tax rules
 - Additional Social Security benefit and taxation rules
 - Additional RMD account and inherited-IRA rules
-- Medicare premiums and IRMAA
+- Medicare/IRMAA projection integration, cash-payment modeling, appeals, penalties,
+  survivor behavior, and other advanced Medicare behavior
 - Survivor and long-term-care scenarios
 - Withdrawal and Roth-conversion optimization
 - Versioned JSON, CSV, and Excel reports
