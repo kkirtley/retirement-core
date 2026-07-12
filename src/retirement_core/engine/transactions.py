@@ -54,7 +54,7 @@ def apply_transaction(
     charitable_method = transaction.charitable_method
 
     match transaction.transaction_type:
-        case TransactionType.INCOME:
+        case TransactionType.INCOME | TransactionType.SOCIAL_SECURITY_INCOME:
             _require_absent(source, "Income cannot have a source account")
             destination = _require_type(
                 destination, {AccountType.CASH}, "Income destination must be cash"

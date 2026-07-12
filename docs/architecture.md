@@ -41,6 +41,17 @@ Roth conversions form the supported ordinary-income subtotal. Roth conversions a
 taxable but not spendable. Federal tax is paid from the explicitly configured cash
 account and participates in household cash-flow reconciliation.
 
+Gross Social Security benefits are calculated separately for each modeled spouse and
+are fully spendable. Benefits begin in the claim month; the claim year includes that
+month through December; COLA applies each January after the claim year; and monthly
+benefits are rounded to cents before annual aggregation. The annual model ignores the
+one-month payment lag.
+
+Social Security taxation is calculated jointly for 2026 MFJ using only currently
+modeled supported provisional-income sources: federally taxable pensions, Roth
+conversions, and half of gross Social Security. Only the taxable benefit enters federal
+ordinary income. The model does not claim complete statutory modified-AGI coverage.
+
 ## Reproducibility
 
 Every run records engine, plan-schema and rule-dataset versions.

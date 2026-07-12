@@ -17,7 +17,14 @@
           {"lower_bound": "403550.00", "upper_bound": "512450.00", "rate": "0.32"},
           {"lower_bound": "512450.00", "upper_bound": "768700.00", "rate": "0.35"},
           {"lower_bound": "768700.00", "upper_bound": null, "rate": "0.37"}
-        ]
+        ],
+        "social_security_taxation": {
+          "base_amount": "32000.00",
+          "adjusted_base_amount": "44000.00",
+          "first_tier_rate": "0.50",
+          "second_tier_rate": "0.85",
+          "maximum_taxable_rate": "0.85"
+        }
       }
     }
   },
@@ -27,7 +34,15 @@
     "source_url": "https://www.eitc.irs.gov/pub/irs-drop/rp-25-32.pdf",
     "source_reference": "Sections 4.01 and 4.14(1)",
     "retrieved_at": "2026-07-12",
-    "effective_date": "2026-01-01"
+    "effective_date": "2026-01-01",
+    "additional_sources": [
+      {
+        "publisher": "United States House of Representatives, Office of the Law Revision Counsel",
+        "source_title": "26 U.S.C. Section 86 — Social security and tier 1 railroad retirement benefits",
+        "source_url": "https://uscode.house.gov/view.xhtml?req=(title:26%20section:86%20edition:prelim)",
+        "source_reference": "Subsections (a), (b), and (c)"
+      }
+    ]
   },
   "projection_assumptions": {}
 }

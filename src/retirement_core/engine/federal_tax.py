@@ -17,9 +17,10 @@ def calculate_federal_income_tax(
 ) -> FederalIncomeTaxResult:
     """Calculate 2026 MFJ federal tax on ordinary income before the standard deduction.
 
-    ``gross_ordinary_income`` is not AGI and is not taxable income. It excludes Social
-    Security, capital gains, credits, itemized deductions, and every other tax feature
-    outside this phase.
+    ``gross_ordinary_income`` is not AGI and is not taxable income. It may include a
+    taxable Social Security amount calculated by the caller, but this function does not
+    calculate that amount. Capital gains, credits, itemized deductions, and other tax
+    features outside this phase are excluded.
     """
     if gross_ordinary_income < 0:
         raise ValueError("Gross ordinary income cannot be negative")

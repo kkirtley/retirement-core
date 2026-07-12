@@ -13,6 +13,12 @@ class IncomeType(StrEnum):
     UNSPECIFIED = "unspecified"
 
 
+class SocialSecurityBenefitSubtype(StrEnum):
+    RETIREMENT = "retirement"
+    DISABILITY = "disability"
+    SURVIVOR = "survivor"
+
+
 class AccountType(StrEnum):
     TRADITIONAL_IRA = "traditional_ira"
     ROTH_IRA = "roth_ira"
@@ -32,6 +38,7 @@ class TransactionType(StrEnum):
     ROTH_CONVERSION = "roth_conversion"
     CHARITABLE_GIVING = "charitable_giving"
     FEDERAL_TAX_PAYMENT = "federal_tax_payment"
+    SOCIAL_SECURITY_INCOME = "social_security_income"
 
 
 class CharitableGivingMethod(StrEnum):

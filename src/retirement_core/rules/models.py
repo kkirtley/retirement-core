@@ -10,6 +10,14 @@ NonNegativeDecimal = Annotated[Decimal, Field(ge=0)]
 TaxRate = Annotated[Decimal, Field(ge=0, le=1)]
 
 
+class SourceAttribution(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    publisher: str
+    source_title: str
+    source_url: str
+    source_reference: str | None = None
+
+
 class Provenance(BaseModel):
     model_config = ConfigDict(extra="forbid")
     publisher: str
@@ -18,6 +26,7 @@ class Provenance(BaseModel):
     source_reference: str | None = None
     retrieved_at: date
     effective_date: date | None = None
+    additional_sources: tuple[SourceAttribution, ...] = ()
 
 
 class RuleDataset(BaseModel):
@@ -40,10 +49,26 @@ class FederalTaxBracket(BaseModel):
     rate: TaxRate
 
 
+class FederalSocialSecurityTaxRules(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    base_amount: NonNegativeDecimal
+    adjusted_base_amount: NonNegativeDecimal
+    first_tier_rate: TaxRate
+    second_tier_rate: TaxRate
+    maximum_taxable_rate: TaxRate
+
+    @model_validator(mode="after")
+    def validate_thresholds(self) -> Self:
+        if self.adjusted_base_amount <= self.base_amount:
+            raise ValueError("Social Security adjusted base must exceed its base amount")
+        return self
+
+
 class FederalTaxFilingStatusRules(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     standard_deduction: NonNegativeDecimal
     ordinary_income_brackets: tuple[FederalTaxBracket, ...]
+    social_security_taxation: FederalSocialSecurityTaxRules
 
 
 class FederalTaxDatasetValues(BaseModel):
@@ -58,6 +83,7 @@ class FederalTaxRules(BaseModel):
     filing_status: FilingStatus
     standard_deduction: NonNegativeDecimal
     ordinary_income_brackets: tuple[FederalTaxBracket, ...]
+    social_security_taxation: FederalSocialSecurityTaxRules
     provenance: Provenance
 
     @classmethod
@@ -77,6 +103,7 @@ class FederalTaxRules(BaseModel):
             filing_status=filing_status,
             standard_deduction=status_rules.standard_deduction,
             ordinary_income_brackets=status_rules.ordinary_income_brackets,
+            social_security_taxation=status_rules.social_security_taxation,
             provenance=dataset.provenance,
         )
 

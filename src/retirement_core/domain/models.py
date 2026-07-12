@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -11,6 +11,7 @@ from retirement_core.domain.enums import (
     CharitableGivingMethod,
     FilingStatus,
     IncomeType,
+    SocialSecurityBenefitSubtype,
     TransactionType,
 )
 
@@ -37,10 +38,13 @@ class AccountInput(BaseModel):
 
 class SocialSecurityInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
+    id: str
     owner_id: str
+    benefit_subtype: SocialSecurityBenefitSubtype | None = None
     claim_date: date
     monthly_benefit: NonNegativeMoney
     annual_cola: Percent = Decimal("0")
+    destination_account_id: str
 
 
 class IncomeInput(BaseModel):
@@ -131,6 +135,33 @@ class AnnualHouseholdResult(BaseModel):
     cash_withdrawals: Decimal = Decimal("0")
     cash_surplus: Decimal
     federal_tax_result: FederalIncomeTaxResult | None = None
+    social_security_benefits: tuple[AnnualSocialSecurityBenefit, ...] = ()
+    social_security_taxation: SocialSecurityTaxationResult | None = None
+
+
+class AnnualSocialSecurityBenefit(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    source_id: str
+    owner_id: str
+    benefit_subtype: SocialSecurityBenefitSubtype | None
+    monthly_benefit: Decimal
+    months_received: int
+    gross_benefit: Decimal
+
+
+class SocialSecurityTaxationResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    provisional_income_scope: Literal["currently_modeled_supported_sources_only"] = (
+        "currently_modeled_supported_sources_only"
+    )
+    gross_social_security: Decimal
+    half_social_security: Decimal
+    other_provisional_income: Decimal
+    provisional_income: Decimal
+    base_amount: Decimal
+    adjusted_base_amount: Decimal
+    taxable_social_security: Decimal
+    maximum_taxable_social_security: Decimal
 
 
 class FederalBracketTax(BaseModel):
