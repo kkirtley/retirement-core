@@ -50,5 +50,9 @@ def reconcile_household_cash(
         )
 
 
-def calculate_growth(balance: Decimal, annual_return: Decimal) -> Decimal:
-    return (balance * annual_return).quantize(Decimal("0.01"))
+def calculate_growth(
+    balance: Decimal,
+    annual_return: Decimal,
+    growth_fraction: Decimal = Decimal("1"),
+) -> Decimal:
+    return (balance * annual_return * growth_fraction).quantize(Decimal("0.01"))

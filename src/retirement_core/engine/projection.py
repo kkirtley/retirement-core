@@ -1,3 +1,4 @@
+from calendar import isleap
 from collections.abc import Sequence
 from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
@@ -32,6 +33,7 @@ from retirement_core.domain.models import (
     FederalIncomeTaxResult,
     IncomeInput,
     MissouriTaxResult,
+    PlanInput,
     ProjectionRequest,
     ProjectionResult,
     ResolvedAnnualIncome,
@@ -108,11 +110,14 @@ def run_projection(
         beginning_balances = balances.copy()
         growth_by_account: dict[str, Decimal] = {}
         activity = {account_id: AccountActivity() for account_id in accounts}
+        growth_period_start, growth_period_end, growth_fraction = _growth_period(plan, year)
 
         # Temporary deterministic timing convention: all annual growth is applied to
         # beginning-of-year balances before any transaction for that year is applied.
         for account_id, account in accounts.items():
-            growth = calculate_growth(beginning_balances[account_id], account.annual_return)
+            growth = calculate_growth(
+                beginning_balances[account_id], account.annual_return, growth_fraction
+            )
             growth_by_account[account_id] = growth
             balances[account_id] += growth
 
@@ -144,6 +149,7 @@ def run_projection(
                 raise ValueError(
                     f"No applicable RMD/QCD rule dataset exists for projection year {year}"
                 ) from error
+            _fail_for_partial_first_year_rmd(request, year, rmd_qcd_rules)
             rmd_qcd_result, generated_entries = _apply_annual_rmd_qcd(
                 request,
                 year,
@@ -305,6 +311,9 @@ def run_projection(
                 transfers_out=account_activity.transfers_out,
                 roth_conversions=account_activity.roth_conversions,
                 qcd=account_activity.qcd,
+                growth_period_start=growth_period_start,
+                growth_period_end=growth_period_end,
+                growth_fraction=growth_fraction,
                 ending_balance=balances[account_id],
             )
             reconcile_account(row)
@@ -386,6 +395,12 @@ def run_projection(
     provenance = {
         "rules_mode": "external_versioned_datasets",
         "transaction_timing": "beginning_balance_growth_then_transactions_then_tax",
+        "starting_balance_timing": "account starting balances are measured as of plan.start_date",
+        "growth_timing": "growth is applied before generated and declared annual transactions",
+        "growth_proration": (
+            "full calendar years use the configured annual return; partial years use simple "
+            "inclusive actual-calendar-day proration"
+        ),
     }
     if federal_tax_rules is not None and first_year <= 2026 <= last_year:
         provenance["federal_tax_dataset_id"] = federal_tax_rules.dataset_id
@@ -422,6 +437,52 @@ def _requires_rmd_qcd(people: Sequence[object], accounts: list[AccountInput]) ->
     return bool(people) and any(
         account.account_type in _PRETAX_ACCOUNT_TYPES for account in accounts
     )
+
+
+def _growth_period(plan: PlanInput, year: int) -> tuple[date, date, Decimal]:
+    start_date = plan.start_date
+    end_date = plan.end_date
+    period_start = max(start_date, date(year, 1, 1))
+    period_end = min(end_date, date(year, 12, 31))
+    active_days = (period_end - period_start).days + 1
+    days_in_year = 366 if isleap(year) else 365
+    return period_start, period_end, Decimal(active_days) / Decimal(days_in_year)
+
+
+def _fail_for_partial_first_year_rmd(
+    request: ProjectionRequest,
+    year: int,
+    rules: RmdQcdRules,
+) -> None:
+    plan = request.plan
+    if year != plan.start_date.year or plan.start_date == date(year, 1, 1):
+        return
+    rmd = calculate_rmd(
+        year,
+        tuple(
+            RmdOwnerInput(owner_id=person.id, date_of_birth=person.date_of_birth)
+            for person in plan.people
+        ),
+        tuple(
+            RmdAccountInput(
+                account_id=account.id,
+                owner_id=account.owner_id,
+                account_type=account.account_type,
+                prior_year_end_balance=Decimal("0"),
+            )
+            for account in plan.accounts
+        ),
+        rules,
+    )
+    if any(
+        account.eligible and account.divisor is not None
+        for owner in rmd.owners
+        for account in owner.accounts
+    ):
+        raise ValueError(
+            f"Cannot calculate RMD for partial first projection year {year}: "
+            "starting balances are as of plan.start_date, not prior-year-end balances"
+        )
 
 
 def _calculate_annual_medicare(

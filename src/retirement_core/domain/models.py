@@ -350,6 +350,9 @@ class AnnualAccountResult(BaseModel):
     transfers_out: Decimal = Decimal("0")
     roth_conversions: Decimal = Decimal("0")
     qcd: Decimal = Decimal("0")
+    growth_period_start: date | None = None
+    growth_period_end: date | None = None
+    growth_fraction: Decimal | None = None
     ending_balance: Decimal
 
 
