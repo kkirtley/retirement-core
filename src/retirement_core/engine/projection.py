@@ -8,6 +8,8 @@ from retirement_core.domain.enums import (
     CharitableGivingMethod,
     FilingStatus,
     IncomeType,
+    PensionType,
+    SocialSecurityBenefitSubtype,
     TaxableRmdAllocationMethod,
     TransactionType,
 )
@@ -21,6 +23,7 @@ from retirement_core.domain.models import (
     AnnualSocialSecurityBenefit,
     AnnualTransactionInput,
     FederalIncomeTaxResult,
+    MissouriTaxResult,
     ProjectionRequest,
     ProjectionResult,
     SocialSecurityTaxationResult,
@@ -32,6 +35,7 @@ from retirement_core.engine.ledger import (
     reconcile_account,
     reconcile_household_cash,
 )
+from retirement_core.engine.missouri_tax import MissouriOwnerIncome, calculate_missouri_income_tax
 from retirement_core.engine.rmd_qcd import (
     AccountRmdResult,
     RmdAccountInput,
@@ -41,6 +45,7 @@ from retirement_core.engine.rmd_qcd import (
 )
 from retirement_core.engine.social_security_tax import calculate_taxable_social_security
 from retirement_core.engine.transactions import AccountActivity, apply_transaction
+from retirement_core.rules.missouri_tax import MissouriTaxRules
 from retirement_core.rules.models import FederalTaxRules
 from retirement_core.rules.rmd_qcd import RmdQcdRules
 
@@ -52,6 +57,7 @@ def run_projection(
     request: ProjectionRequest,
     federal_tax_rules: FederalTaxRules | None = None,
     rmd_qcd_rules_by_year: dict[int, RmdQcdRules] | None = None,
+    missouri_tax_rules_by_year: dict[int, MissouriTaxRules] | None = None,
 ) -> ProjectionResult:
     plan = request.plan
     accounts = {account.id: account for account in plan.accounts}
@@ -63,6 +69,7 @@ def run_projection(
     annual_household: list[AnnualHouseholdResult] = []
     ledger_entries: list[TransactionLedgerEntry] = []
     rmd_qcd_rules_by_year = rmd_qcd_rules_by_year or {}
+    missouri_tax_rules_by_year = missouri_tax_rules_by_year or {}
 
     first_year = plan.start_date.year
     last_year = plan.end_date.year
@@ -142,6 +149,16 @@ def run_projection(
             ),
             federal_tax_rules,
         )
+        missouri_tax_result = _calculate_annual_missouri_tax(
+            request,
+            year,
+            plan_transactions,
+            social_security_benefits,
+            social_security_taxation,
+            rmd_qcd_result,
+            federal_tax_result,
+            missouri_tax_rules_by_year.get(year),
+        )
         if federal_tax_result is not None and federal_tax_result.total_federal_tax > 0:
             payment_account_id = plan.federal_tax_payment_account_id
             if payment_account_id is None:
@@ -155,6 +172,26 @@ def run_projection(
             )
             entry = apply_transaction(
                 tax_payment,
+                accounts,
+                balances,
+                activity,
+                allow_negative_cash_balance=plan.allow_negative_cash_balance,
+            )
+            year_entries.append(entry)
+            ledger_entries.append(entry)
+        if missouri_tax_result is not None and missouri_tax_result.total_tax > 0:
+            payment_account_id = plan.missouri_tax_payment_account_id
+            if payment_account_id is None:
+                raise ValueError("A missouri_tax_payment_account_id is required")
+            payment = AnnualTransactionInput(
+                id=f"missouri-tax:{year}",
+                year=year,
+                transaction_type=TransactionType.MISSOURI_TAX_PAYMENT,
+                amount=missouri_tax_result.total_tax,
+                source_account_id=payment_account_id,
+            )
+            entry = apply_transaction(
+                payment,
                 accounts,
                 balances,
                 activity,
@@ -186,7 +223,15 @@ def run_projection(
         spending = sum((entry.spending for entry in year_entries), Decimal("0"))
         contributions = sum((entry.contribution for entry in year_entries), Decimal("0"))
         federal_tax = sum((entry.federal_tax_payment for entry in year_entries), Decimal("0"))
-        cash_surplus = spendable_income + cash_withdrawals - spending - contributions - federal_tax
+        missouri_tax = sum((entry.missouri_tax_payment for entry in year_entries), Decimal("0"))
+        cash_surplus = (
+            spendable_income
+            + cash_withdrawals
+            - spending
+            - contributions
+            - federal_tax
+            - missouri_tax
+        )
         reconcile_household_cash(
             spendable_income,
             cash_withdrawals,
@@ -194,9 +239,11 @@ def run_projection(
             contributions,
             cash_surplus,
             federal_tax=federal_tax,
+            missouri_tax=missouri_tax,
         )
 
-        after_tax = spendable_income - federal_tax
+        total_taxes = federal_tax + missouri_tax
+        after_tax = spendable_income - total_taxes
         giving_target = (
             max(after_tax, Decimal("0")) * plan.giving_policy.target_rate_after_tax_income
         ).quantize(Decimal("0.01"))
@@ -204,7 +251,7 @@ def run_projection(
             AnnualHouseholdResult(
                 year=year,
                 gross_income=spendable_income,
-                taxes=federal_tax,
+                taxes=total_taxes,
                 after_tax_income=after_tax,
                 giving_target=giving_target,
                 spending=spending,
@@ -215,6 +262,7 @@ def run_projection(
                 social_security_benefits=tuple(social_security_benefits),
                 social_security_taxation=social_security_taxation,
                 rmd_qcd_result=rmd_qcd_result,
+                missouri_tax_result=missouri_tax_result,
             )
         )
 
@@ -227,6 +275,9 @@ def run_projection(
     for year, rules in sorted(rmd_qcd_rules_by_year.items()):
         if first_year <= year <= last_year:
             provenance[f"rmd_qcd_dataset_id:{year}"] = rules.dataset_id
+    for year, missouri_rules in sorted(missouri_tax_rules_by_year.items()):
+        if first_year <= year <= last_year:
+            provenance[f"missouri_tax_dataset_id:{year}"] = missouri_rules.dataset_id
 
     return ProjectionResult(
         engine_version=__version__,
@@ -238,7 +289,9 @@ def run_projection(
         warnings=[
             "Federal tax is limited to 2026 MFJ ordinary pension income, Roth conversions, "
             "taxable Social Security, and generated taxable RMDs from modeled sources. "
-            "Medicare, IRMAA, state-tax, inherited-IRA, and survivor engines are not implemented."
+            "Missouri tax uses a projected 2026 return rate based on the official withholding "
+            "formula. Medicare, IRMAA, other-state tax, inherited-IRA, and survivor engines "
+            "are not implemented."
         ],
         provenance=provenance,
     )
@@ -515,6 +568,114 @@ def _validate_live_capacity(
         raise ValueError(f"Insufficient eligible IRA balance for owner {owner_id} taxable RMD")
 
 
+def _calculate_annual_missouri_tax(
+    request: ProjectionRequest,
+    year: int,
+    plan_transactions: list[AnnualTransactionInput],
+    social_security_benefits: list[AnnualSocialSecurityBenefit],
+    social_security_taxation: SocialSecurityTaxationResult | None,
+    rmd_qcd_result: AnnualRmdQcdResult | None,
+    federal_tax_result: FederalIncomeTaxResult | None,
+    rules: MissouriTaxRules | None,
+) -> MissouriTaxResult | None:
+    residency = request.plan.state_residency
+    if residency is None or residency.state_code != "MO":
+        return None
+    if residency.status.value != "full_year_resident":
+        raise ValueError("Only full-year Missouri residency is implemented")
+    if request.plan.filing_status is not FilingStatus.MARRIED_FILING_JOINTLY:
+        raise ValueError("Only Missouri married filing combined is implemented")
+    if rules is None:
+        raise ValueError(f"No applicable Missouri tax rule dataset exists for {year}")
+    if federal_tax_result is None:
+        raise ValueError("Missouri tax requires a federal tax result")
+    people = {person.id: person for person in request.plan.people}
+    components = {
+        person.id: {
+            "public": Decimal("0"),
+            "private": Decimal("0"),
+            "rmd": Decimal("0"),
+            "gross_ss": Decimal("0"),
+            "retirement_ss": Decimal("0"),
+            "disability_ss": Decimal("0"),
+        }
+        for person in request.plan.people
+    }
+    for income in request.plan.income:
+        if not (
+            income.start_date.year <= year
+            and (income.end_date is None or income.end_date.year >= year)
+            and income.income_type is IncomeType.PENSION
+            and income.taxable_federal
+            and income.taxable_state
+        ):
+            continue
+        if income.owner_id not in people or income.pension_type is None:
+            raise ValueError(
+                f"Missouri pension {income.id} requires an owner and public/private pension_type"
+            )
+        key = "public" if income.pension_type is PensionType.PUBLIC else "private"
+        components[income.owner_id][key] += income.annual_amount
+    if rmd_qcd_result is not None:
+        for owner in rmd_qcd_result.owners:
+            components[owner.owner_id]["rmd"] += owner.taxable_rmd
+    taxable_social_security = (
+        social_security_taxation.taxable_social_security
+        if social_security_taxation is not None
+        else Decimal("0")
+    )
+    total_gross_ss = sum(
+        (benefit.gross_benefit for benefit in social_security_benefits), Decimal("0")
+    )
+    for benefit in social_security_benefits:
+        if benefit.benefit_subtype not in {
+            SocialSecurityBenefitSubtype.RETIREMENT,
+            SocialSecurityBenefitSubtype.DISABILITY,
+        }:
+            raise ValueError(
+                "Missouri Social Security treatment requires retirement or disability subtype"
+            )
+        components[benefit.owner_id]["gross_ss"] += benefit.gross_benefit
+        allocated_taxable = (
+            taxable_social_security * benefit.gross_benefit / total_gross_ss
+            if total_gross_ss > 0
+            else Decimal("0")
+        )
+        key = (
+            "disability_ss"
+            if benefit.benefit_subtype is SocialSecurityBenefitSubtype.DISABILITY
+            else "retirement_ss"
+        )
+        components[benefit.owner_id][key] += allocated_taxable
+    owners = tuple(
+        MissouriOwnerIncome(
+            owner_id=person.id,
+            date_of_birth=person.date_of_birth,
+            public_pension=components[person.id]["public"],
+            private_pension=components[person.id]["private"],
+            taxable_rmd=components[person.id]["rmd"],
+            gross_social_security=components[person.id]["gross_ss"],
+            taxable_social_security_retirement=components[person.id]["retirement_ss"],
+            taxable_social_security_disability=components[person.id]["disability_ss"],
+        )
+        for person in request.plan.people
+    )
+    roth_conversions = sum(
+        (
+            transaction.amount
+            for transaction in plan_transactions
+            if transaction.transaction_type is TransactionType.ROTH_CONVERSION
+        ),
+        Decimal("0"),
+    )
+    return calculate_missouri_income_tax(
+        owners,
+        federal_tax_result.total_federal_tax,
+        roth_conversions,
+        rules,
+    )
+
+
 def _calculate_annual_federal_tax(
     request: ProjectionRequest,
     year: int,
@@ -601,6 +762,8 @@ def _validate_projection_generated_transaction_types(
             raise ValueError("Social Security income transactions are generated by the projection")
         if transaction.transaction_type is TransactionType.RMD_DISTRIBUTION:
             raise ValueError("RMD distribution transactions are generated by the projection")
+        if transaction.transaction_type is TransactionType.MISSOURI_TAX_PAYMENT:
+            raise ValueError("Missouri tax payment transactions are generated by the projection")
         if (
             transaction.transaction_type is TransactionType.CHARITABLE_GIVING
             and transaction.charitable_method is CharitableGivingMethod.QCD

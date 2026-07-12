@@ -51,6 +51,7 @@ def apply_transaction(
     spending = Decimal("0")
     contribution = Decimal("0")
     federal_tax_payment = Decimal("0")
+    missouri_tax_payment = Decimal("0")
     taxable_ordinary_income = Decimal("0")
     charitable_method = transaction.charitable_method
 
@@ -151,6 +152,14 @@ def apply_transaction(
             debit(source)
             activity[source.id].withdrawals += amount
             federal_tax_payment = amount
+        case TransactionType.MISSOURI_TAX_PAYMENT:
+            _require_absent(destination, "Missouri tax payment cannot have a destination account")
+            source = _require_type(
+                source, {AccountType.CASH}, "Missouri tax payment source must be cash"
+            )
+            debit(source)
+            activity[source.id].withdrawals += amount
+            missouri_tax_payment = amount
 
     for account_id, change in balance_changes.items():
         new_balance = balances[account_id] + change
@@ -180,6 +189,7 @@ def apply_transaction(
         contribution=contribution,
         federal_tax_payment=federal_tax_payment,
         taxable_ordinary_income=taxable_ordinary_income,
+        missouri_tax_payment=missouri_tax_payment,
     )
 
 

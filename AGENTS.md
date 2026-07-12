@@ -17,6 +17,8 @@ The project currently provides:
 - Annual account and household cash-flow reconciliation
 - 2026 married-filing-jointly federal tax for ordinary pension income, Roth conversions,
   and taxable Social Security benefits
+- Owner-specific RMD and configurable QCD projection processing
+- Projected 2026 Missouri married-filing-combined retirement-income tax
 - Immutable transaction inputs and generated ledger results
 - A FastAPI adapter
 - PostgreSQL models and Alembic migration scaffolding
@@ -26,9 +28,9 @@ The project currently provides:
 The current deterministic timing convention applies annual growth to
 beginning-of-year balances, followed by generated income and declared transactions.
 
-Federal tax outside the supported 2026 MFJ scope, RMDs, QCD processing, state tax,
-Medicare IRMAA, survivor logic, optimization, reporting exports, and frontend behavior
-are not implemented.
+Federal tax outside the supported 2026 MFJ scope, state tax outside the projected 2026
+Missouri scope, Medicare IRMAA, survivor logic, optimization, reporting exports, and
+frontend behavior are not implemented.
 
 ## Repository structure
 
@@ -86,7 +88,7 @@ Future work may add:
 
 - Additional federal and state income-tax rules
 - Additional Social Security benefit and taxation rules
-- RMD and owner-specific QCD processing
+- Additional RMD account and inherited-IRA rules
 - Medicare premiums and IRMAA
 - Survivor and long-term-care scenarios
 - Withdrawal and Roth-conversion optimization

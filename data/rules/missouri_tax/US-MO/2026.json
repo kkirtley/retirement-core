@@ -1,0 +1,89 @@
+{
+  "dataset_id": "US-MO-INDIVIDUAL-INCOME-TAX-2026-v1",
+  "dataset_type": "state_individual_income_tax",
+  "jurisdiction": "US-MO",
+  "tax_year": 2026,
+  "effective_from": "2026-01-01",
+  "effective_to": "2026-12-31",
+  "version": "1",
+  "status": "projected",
+  "values": {
+    "brackets": [
+      {"lower_bound": "0.00", "upper_bound": "1348.00", "rate": "0.00"},
+      {"lower_bound": "1348.00", "upper_bound": "2696.00", "rate": "0.02"},
+      {"lower_bound": "2696.00", "upper_bound": "4044.00", "rate": "0.025"},
+      {"lower_bound": "4044.00", "upper_bound": "5392.00", "rate": "0.03"},
+      {"lower_bound": "5392.00", "upper_bound": "6740.00", "rate": "0.035"},
+      {"lower_bound": "6740.00", "upper_bound": "8088.00", "rate": "0.04"},
+      {"lower_bound": "8088.00", "upper_bound": "9436.00", "rate": "0.045"},
+      {"lower_bound": "9436.00", "upper_bound": null, "rate": "0.047"}
+    ],
+    "tax_rounding_increment": "1.00",
+    "standard_deduction": "32200.00",
+    "additional_age_threshold": 65,
+    "additional_age_amount": "1650.00",
+    "social_security_retirement_age": 62,
+    "social_security_subtraction_rate": "1.00",
+    "public_pension_maximum_per_owner": "48967.00",
+    "public_pension_reduced_by_owner_social_security": true,
+    "private_retirement_maximum_per_owner": "6000.00",
+    "private_retirement_combined_threshold": "32000.00",
+    "private_retirement_phaseout_rate": "1.00",
+    "roth_conversion_subtraction_supported": false,
+    "federal_deduction_maximum": "10000.00",
+    "federal_deduction_bands": [
+      {"upper_income": "25000.00", "percentage": "0.35"},
+      {"upper_income": "50000.00", "percentage": "0.25"},
+      {"upper_income": "100000.00", "percentage": "0.15"},
+      {"upper_income": "125000.00", "percentage": "0.05"},
+      {"upper_income": null, "percentage": "0.00"}
+    ],
+    "component_statuses": {
+      "rate_formula": {
+        "status": "official_2026_withholding_formula_used_as_projected_return_rate",
+        "authority": "Missouri Department of Revenue 2026 Withholding Tax Formula",
+        "planning_use": "suitable_for_retirement_planning_estimates",
+        "limitation": "not_yet_final_2026_MO-1040_return_tax_chart",
+        "replacement": "replace_or_confirm_when_final_2026_return_instructions_are_published"
+      },
+      "return_rounding_and_combined_mechanics": {
+        "status": "provisionally_carried_forward_from_2025_instructions",
+        "authority": "2025 Missouri MO-1040 instructions"
+      },
+      "standard_deduction": {
+        "status": "official_2026_federal_amount_with_missouri_linkage",
+        "authority": "IRS Revenue Procedure 2025-45 and Missouri DOR guidance"
+      },
+      "public_pension_maximum": {
+        "status": "official_2026_dor_amount",
+        "authority": "Missouri DOR Pension FAQs"
+      },
+      "retirement_subtractions": {
+        "status": "enacted_statute",
+        "authority": "RSMo 143.124 and 143.125"
+      },
+      "roth_conversion": {
+        "status": "authoritative_treatment_ambiguous_unsupported",
+        "authority": "RSMo 143.124 and current MO-A private pension worksheet"
+      },
+      "federal_tax_deduction": {
+        "status": "enacted_statute",
+        "authority": "RSMo 143.171"
+      }
+    }
+  },
+  "provenance": {
+    "publisher": "Missouri Department of Revenue",
+    "source_title": "2026 Missouri Withholding Tax Formula and Pension FAQs",
+    "source_url": "https://dor.mo.gov/forms/Withholding%20Formula_2026.pdf",
+    "source_reference": "Annual percentage formula; retirement subtraction amounts",
+    "retrieved_at": "2026-07-12",
+    "effective_date": "2026-01-01",
+    "additional_sources": [
+      {"publisher": "Missouri General Assembly", "source_title": "RSMo 143.124", "source_url": "https://revisor.mo.gov/main/OneSection.aspx?section=143.124", "source_reference": "Pension and retirement subtractions"},
+      {"publisher": "Missouri General Assembly", "source_title": "RSMo 143.125", "source_url": "https://revisor.mo.gov/main/OneSection.aspx?section=143.125", "source_reference": "Social Security subtraction"},
+      {"publisher": "Missouri General Assembly", "source_title": "RSMo 143.171", "source_url": "https://revisor.mo.gov/main/OneSection.aspx?section=143.171", "source_reference": "Federal income tax deduction"}
+    ]
+  },
+  "projection_assumptions": {}
+}

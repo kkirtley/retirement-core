@@ -11,8 +11,10 @@ from retirement_core.domain.enums import (
     CharitableGivingMethod,
     FilingStatus,
     IncomeType,
+    PensionType,
     QcdAllocationMethod,
     QcdTargetMode,
+    ResidencyStatus,
     SocialSecurityBenefitSubtype,
     TaxableRmdAllocationMethod,
     TransactionType,
@@ -54,6 +56,7 @@ class IncomeInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     id: str
     income_type: IncomeType = IncomeType.UNSPECIFIED
+    pension_type: PensionType | None = None
     owner_id: str | None = None
     annual_amount: NonNegativeMoney
     start_date: date
@@ -122,6 +125,12 @@ class TaxableRmdSourcePolicyInput(BaseModel):
     )
 
 
+class StateResidencyInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    state_code: str
+    status: ResidencyStatus
+
+
 class AnnualTransactionInput(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     id: str
@@ -147,6 +156,8 @@ class PlanInput(BaseModel):
     transactions: list[AnnualTransactionInput] = Field(default_factory=list)
     giving_policy: GivingPolicyInput = Field(default_factory=GivingPolicyInput)
     federal_tax_payment_account_id: str | None = None
+    state_residency: StateResidencyInput | None = None
+    missouri_tax_payment_account_id: str | None = None
     taxable_rmd_destination_account_by_owner: dict[str, str] = Field(default_factory=dict)
     taxable_rmd_source_policy: TaxableRmdSourcePolicyInput | None = None
     allow_negative_cash_balance: bool = False
@@ -196,6 +207,7 @@ class AnnualHouseholdResult(BaseModel):
     social_security_benefits: tuple[AnnualSocialSecurityBenefit, ...] = ()
     social_security_taxation: SocialSecurityTaxationResult | None = None
     rmd_qcd_result: AnnualRmdQcdResult | None = None
+    missouri_tax_result: MissouriTaxResult | None = None
 
 
 class AnnualRmdAccountResult(BaseModel):
@@ -284,6 +296,31 @@ class FederalIncomeTaxResult(BaseModel):
     marginal_bracket: FederalMarginalBracket | None
 
 
+class MissouriOwnerTaxResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    owner_id: str
+    missouri_agi: Decimal
+    income_percentage: Decimal
+    taxable_income: Decimal
+    tax: Decimal
+
+
+class MissouriTaxResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    dataset_id: str
+    dataset_version: str
+    gross_income_basis: Decimal
+    social_security_subtraction: Decimal
+    public_pension_subtraction: Decimal
+    private_retirement_subtraction: Decimal
+    federal_tax_deduction: Decimal
+    standard_deduction: Decimal
+    total_adjustments_and_subtractions: Decimal
+    taxable_income: Decimal
+    total_tax: Decimal
+    owners: tuple[MissouriOwnerTaxResult, ...]
+
+
 class TransactionLedgerEntry(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     transaction_id: str
@@ -299,6 +336,7 @@ class TransactionLedgerEntry(BaseModel):
     contribution: Decimal = Decimal("0")
     federal_tax_payment: Decimal = Decimal("0")
     taxable_ordinary_income: Decimal = Decimal("0")
+    missouri_tax_payment: Decimal = Decimal("0")
 
 
 class ProjectionResult(BaseModel):

@@ -13,6 +13,15 @@ class IncomeType(StrEnum):
     UNSPECIFIED = "unspecified"
 
 
+class PensionType(StrEnum):
+    PUBLIC = "public"
+    PRIVATE = "private"
+
+
+class ResidencyStatus(StrEnum):
+    FULL_YEAR_RESIDENT = "full_year_resident"
+
+
 class SocialSecurityBenefitSubtype(StrEnum):
     RETIREMENT = "retirement"
     DISABILITY = "disability"
@@ -60,6 +69,7 @@ class TransactionType(StrEnum):
     FEDERAL_TAX_PAYMENT = "federal_tax_payment"
     SOCIAL_SECURITY_INCOME = "social_security_income"
     RMD_DISTRIBUTION = "rmd_distribution"
+    MISSOURI_TAX_PAYMENT = "missouri_tax_payment"
 
 
 class CharitableGivingMethod(StrEnum):
