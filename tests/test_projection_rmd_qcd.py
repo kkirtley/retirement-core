@@ -375,17 +375,14 @@ def test_missing_taxable_rmd_source_policy_fails(
         _run(request, federal_rules, rmd_rules)
 
 
-def test_future_year_uses_earlier_still_effective_dataset() -> None:
+def test_future_year_rmd_fails_closed_without_federal_tax_rules() -> None:
     request = _request(year=2027)
     service = ProjectionService(JsonRuleDatasetProvider(Path("data/rules")))
 
-    result = service.run(request)
-
-    annual = result.annual_household[0].rmd_qcd_result
-    assert annual is not None
-    assert annual.rule_dataset_id == "US-FED-RMD-QCD-2026-v1"
-    assert result.provenance["rmd_qcd_dataset_id:2027"] == annual.rule_dataset_id
-    _assert_reconciles(result)
+    with pytest.raises(
+        ValueError, match="Federal tax/AGI processing is unsupported for tax year 2027"
+    ):
+        service.run(request)
 
 
 def test_projection_fails_when_no_effective_rule_dataset_exists(tmp_path: Path) -> None:

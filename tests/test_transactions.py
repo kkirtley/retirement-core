@@ -28,6 +28,7 @@ def _transaction(
     *,
     source: str | None = None,
     destination: str | None = None,
+    taxable_amount: str | None = None,
 ) -> dict[str, str]:
     transaction = {
         "id": transaction_id,
@@ -39,6 +40,8 @@ def _transaction(
         transaction["source_account_id"] = source
     if destination is not None:
         transaction["destination_account_id"] = destination
+    if taxable_amount is not None:
+        transaction["taxable_amount"] = taxable_amount
     return transaction
 
 
@@ -113,6 +116,7 @@ def _account_balances(result: ProjectionResult) -> dict[str, Decimal]:
                         "300",
                         source="traditional",
                         destination="roth",
+                        taxable_amount="0",
                     )
                 ],
             ),
@@ -123,7 +127,7 @@ def _account_balances(result: ProjectionResult) -> dict[str, Decimal]:
             "account withdrawal funds spending",
             _request(
                 accounts=[
-                    _account("traditional", "traditional_ira", "1000"),
+                    _account("taxable", "taxable", "1000"),
                     _account("cash", "cash", "0"),
                 ],
                 transactions=[
@@ -131,13 +135,13 @@ def _account_balances(result: ProjectionResult) -> dict[str, Decimal]:
                         "withdraw",
                         "withdrawal",
                         "500",
-                        source="traditional",
+                        source="taxable",
                         destination="cash",
                     ),
                     _transaction("spend", "spending", "500", source="cash"),
                 ],
             ),
-            {"traditional": Decimal("500"), "cash": Decimal("0")},
+            {"taxable": Decimal("500"), "cash": Decimal("0")},
             (Decimal("0"), Decimal("500"), Decimal("500"), Decimal("0"), Decimal("0")),
         ),
         (
@@ -234,6 +238,7 @@ def test_roth_conversion_does_not_affect_household_cash() -> None:
                 "250",
                 source="traditional",
                 destination="roth",
+                taxable_amount="0",
             )
         ],
     )
@@ -259,7 +264,7 @@ def test_internal_transfer_nets_to_zero_for_household() -> None:
 
 
 def test_growth_is_applied_before_transactions() -> None:
-    account = _account("traditional", "traditional_ira", "100")
+    account = _account("taxable", "taxable", "100")
     account["annual_return"] = "0.10"
     request = _request(
         accounts=[account, _account("cash", "cash", "0")],
@@ -268,14 +273,14 @@ def test_growth_is_applied_before_transactions() -> None:
                 "withdraw",
                 "withdrawal",
                 "50",
-                source="traditional",
+                source="taxable",
                 destination="cash",
             )
         ],
     )
 
     result = run_projection(request)
-    assert _account_balances(result) == {"traditional": Decimal("60.00"), "cash": Decimal("50")}
+    assert _account_balances(result) == {"taxable": Decimal("60.00"), "cash": Decimal("50")}
     assert (
         result.provenance["transaction_timing"]
         == "beginning_balance_growth_then_transactions_then_tax"

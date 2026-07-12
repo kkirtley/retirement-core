@@ -116,6 +116,25 @@ def run_projection(
             growth_by_account[account_id] = growth
             balances[account_id] += growth
 
+        plan_transactions = [
+            transaction for transaction in plan.transactions if transaction.year == year
+        ]
+        if year == 2026:
+            _validate_2026_transaction_tax_treatment(plan_transactions, accounts)
+
+        resolved_income = _resolve_annual_income(request, year)
+        _raise_if_unsupported_federal_processing(
+            year,
+            _federal_processing_source_ids(
+                request,
+                year,
+                plan_transactions,
+                resolved_income,
+                [],
+                [],
+            ),
+        )
+
         rmd_qcd_result: AnnualRmdQcdResult | None = None
         year_entries: list[TransactionLedgerEntry] = []
         if _requires_rmd_qcd(plan.people, plan.accounts):
@@ -137,16 +156,9 @@ def run_projection(
             year_entries.extend(generated_entries)
             ledger_entries.extend(generated_entries)
 
-        plan_transactions = [
-            transaction for transaction in plan.transactions if transaction.year == year
-        ]
-        if year == 2026:
-            _validate_2026_transaction_tax_treatment(plan_transactions, accounts)
-
         social_security_benefits, social_security_transactions = _social_security_transactions(
             request, year
         )
-        resolved_income = _resolve_annual_income(request, year)
         annual_transactions = _income_transactions(resolved_income)
         annual_transactions.extend(social_security_transactions)
         annual_transactions.extend(plan_transactions)
@@ -160,6 +172,18 @@ def run_projection(
             )
             year_entries.append(entry)
             ledger_entries.append(entry)
+
+        _raise_if_unsupported_federal_processing(
+            year,
+            _federal_processing_source_ids(
+                request,
+                year,
+                plan_transactions,
+                resolved_income,
+                social_security_benefits,
+                year_entries,
+            ),
+        )
 
         federal_agi_result, federal_tax_result, social_security_taxation = (
             _calculate_annual_federal_tax(
@@ -383,8 +407,8 @@ def run_projection(
         annual_household=annual_household,
         transactions=ledger_entries,
         warnings=[
-            "Federal tax is limited to 2026 MFJ ordinary pension income, Roth conversions, "
-            "taxable Social Security, and generated taxable RMDs from modeled sources. "
+            "Federal tax and AGI processing is limited to 2026 MFJ modeled sources and fails "
+            "closed for unsupported years with federal-processing-relevant activity. "
             "Missouri tax uses a projected 2026 return rate based on the official withholding "
             "formula. Medicare/IRMAA cash-flow integration excludes appeals, hold-harmless, "
             "late-enrollment penalties, Extra Help, survivor behavior, and automatic enrollment "
@@ -912,6 +936,73 @@ def _calculate_annual_federal_tax(
         federal_tax_rules,
     )
     return federal_agi, federal_tax, social_security_taxation
+
+
+def _raise_if_unsupported_federal_processing(year: int, source_ids: list[str]) -> None:
+    if year == 2026 or not source_ids:
+        return
+    raise ValueError(
+        f"Federal tax/AGI processing is unsupported for tax year {year}; "
+        f"triggering source IDs: {', '.join(source_ids)}"
+    )
+
+
+def _federal_processing_source_ids(
+    request: ProjectionRequest,
+    year: int,
+    plan_transactions: list[AnnualTransactionInput],
+    resolved_income: list[ResolvedAnnualIncome],
+    social_security_benefits: list[AnnualSocialSecurityBenefit],
+    year_entries: list[TransactionLedgerEntry],
+) -> list[str]:
+    """Return deterministic IDs for nonzero activity requiring federal processing."""
+    source_ids: list[str] = []
+    for income in resolved_income:
+        requires_processing = (
+            (
+                income.income_type in {IncomeType.W2_WAGES, IncomeType.TAXABLE_INTEREST}
+                and income.taxable_amount > 0
+            )
+            or (income.income_type is IncomeType.PENSION and income.taxable_amount > 0)
+            or (
+                income.income_type is IncomeType.TAX_EXEMPT_INTEREST
+                and income.spendable_cash_amount > 0
+            )
+        )
+        if requires_processing:
+            source_ids.append(f"income:{income.income_id}")
+    for source in request.plan.social_security:
+        if source.claim_date.year <= year and source.monthly_benefit > 0:
+            source_ids.append(f"social-security:{source.id}")
+    accounts = {account.id: account for account in request.plan.accounts}
+    for transaction in plan_transactions:
+        if (
+            transaction.transaction_type is TransactionType.ROTH_CONVERSION
+            and (
+                transaction.taxable_amount
+                if transaction.taxable_amount is not None
+                else transaction.amount
+            )
+            > 0
+        ):
+            source_ids.append(f"transaction:{transaction.id}")
+        elif transaction.transaction_type is TransactionType.WITHDRAWAL:
+            withdrawal_source = accounts.get(transaction.source_account_id or "")
+            if (
+                withdrawal_source is not None
+                and withdrawal_source.account_type in _PRETAX_ACCOUNT_TYPES
+            ):
+                source_ids.append(f"transaction:{transaction.id}")
+    for benefit in social_security_benefits:
+        if benefit.gross_benefit > 0:
+            source_ids.append(f"social-security:{benefit.source_id}")
+    for entry in year_entries:
+        if (
+            entry.transaction_type is TransactionType.RMD_DISTRIBUTION
+            and entry.taxable_ordinary_income > 0
+        ):
+            source_ids.append(f"transaction:{entry.transaction_id}")
+    return list(dict.fromkeys(source_ids))
 
 
 def _taxable_conversion_amount(transaction: AnnualTransactionInput) -> Decimal:
