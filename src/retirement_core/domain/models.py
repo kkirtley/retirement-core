@@ -20,6 +20,7 @@ from retirement_core.domain.enums import (
     TaxableRmdAllocationMethod,
     TransactionType,
 )
+from retirement_core.domain.medicare import MedicarePlanInput
 
 NonNegativeMoney = Annotated[Decimal, Field(ge=0, decimal_places=2)]
 Percent = Annotated[Decimal, Field(ge=0, le=1)]
@@ -171,6 +172,7 @@ class PlanInput(BaseModel):
     federal_tax_payment_account_id: str | None = None
     state_residency: StateResidencyInput | None = None
     missouri_tax_payment_account_id: str | None = None
+    medicare: MedicarePlanInput | None = None
     taxable_rmd_destination_account_by_owner: dict[str, str] = Field(default_factory=dict)
     taxable_rmd_source_policy: TaxableRmdSourcePolicyInput | None = None
     allow_negative_cash_balance: bool = False

@@ -1,0 +1,59 @@
+{
+  "dataset_id": "US-FED-MEDICARE-IRMAA-2026-v1",
+  "dataset_type": "medicare_irmaa",
+  "jurisdiction": "US-FED",
+  "premium_year": 2026,
+  "effective_from": "2026-01-01",
+  "effective_to": "2026-12-31",
+  "version": "1",
+  "status": "enacted",
+  "values": {
+    "magi_lookback_years": 2,
+    "part_b_standard_monthly_premium": "202.90",
+    "filing_statuses": {
+      "single": {
+        "tiers": [
+          {"lower_bound": null, "lower_inclusive": false, "upper_bound": "109000.00", "upper_inclusive": true, "part_b_irmaa_monthly": "0.00", "part_d_irmaa_monthly": "0.00"},
+          {"lower_bound": "109000.00", "lower_inclusive": false, "upper_bound": "137000.00", "upper_inclusive": true, "part_b_irmaa_monthly": "81.20", "part_d_irmaa_monthly": "14.50"},
+          {"lower_bound": "137000.00", "lower_inclusive": false, "upper_bound": "171000.00", "upper_inclusive": true, "part_b_irmaa_monthly": "202.90", "part_d_irmaa_monthly": "37.50"},
+          {"lower_bound": "171000.00", "lower_inclusive": false, "upper_bound": "205000.00", "upper_inclusive": true, "part_b_irmaa_monthly": "324.60", "part_d_irmaa_monthly": "60.40"},
+          {"lower_bound": "205000.00", "lower_inclusive": false, "upper_bound": "500000.00", "upper_inclusive": false, "part_b_irmaa_monthly": "446.30", "part_d_irmaa_monthly": "83.30"},
+          {"lower_bound": "500000.00", "lower_inclusive": true, "upper_bound": null, "upper_inclusive": false, "part_b_irmaa_monthly": "487.00", "part_d_irmaa_monthly": "91.00"}
+        ]
+      },
+      "married_filing_jointly": {
+        "tiers": [
+          {"lower_bound": null, "lower_inclusive": false, "upper_bound": "218000.00", "upper_inclusive": true, "part_b_irmaa_monthly": "0.00", "part_d_irmaa_monthly": "0.00"},
+          {"lower_bound": "218000.00", "lower_inclusive": false, "upper_bound": "274000.00", "upper_inclusive": true, "part_b_irmaa_monthly": "81.20", "part_d_irmaa_monthly": "14.50"},
+          {"lower_bound": "274000.00", "lower_inclusive": false, "upper_bound": "342000.00", "upper_inclusive": true, "part_b_irmaa_monthly": "202.90", "part_d_irmaa_monthly": "37.50"},
+          {"lower_bound": "342000.00", "lower_inclusive": false, "upper_bound": "410000.00", "upper_inclusive": true, "part_b_irmaa_monthly": "324.60", "part_d_irmaa_monthly": "60.40"},
+          {"lower_bound": "410000.00", "lower_inclusive": false, "upper_bound": "750000.00", "upper_inclusive": false, "part_b_irmaa_monthly": "446.30", "part_d_irmaa_monthly": "83.30"},
+          {"lower_bound": "750000.00", "lower_inclusive": true, "upper_bound": null, "upper_inclusive": false, "part_b_irmaa_monthly": "487.00", "part_d_irmaa_monthly": "91.00"}
+        ]
+      }
+    }
+  },
+  "provenance": {
+    "publisher": "Centers for Medicare & Medicaid Services",
+    "source_title": "2026 Medicare Parts A & B Premiums and Deductibles",
+    "source_url": "https://www.cms.gov/newsroom/fact-sheets/2026-medicare-parts-b-premiums-deductibles",
+    "source_reference": "2026 Part B standard premium and income-related adjustments",
+    "retrieved_at": "2026-07-12",
+    "effective_date": "2026-01-01",
+    "additional_sources": [
+      {
+        "publisher": "Centers for Medicare & Medicaid Services",
+        "source_title": "2026 Medicare Parts C & D Star Ratings and Part D Income-Related Monthly Adjustment Amounts",
+        "source_url": "https://www.cms.gov/newsroom/fact-sheets/2026-medicare-parts-b-premiums-deductibles",
+        "source_reference": "2026 Part D income-related monthly adjustment amounts"
+      },
+      {
+        "publisher": "Social Security Administration",
+        "source_title": "POMS HI 01101.010 Modified Adjusted Gross Income (MAGI)",
+        "source_url": "https://secure.ssa.gov/poms.nsf/lnx/0601101010",
+        "source_reference": "MAGI definition and two-year lookback"
+      }
+    ]
+  },
+  "projection_assumptions": {}
+}

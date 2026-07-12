@@ -39,7 +39,11 @@ class JsonRuleDatasetProvider:
             )
         return max(
             candidates,
-            key=lambda item: (item.effective_from, item.tax_year, _version_key(item.version)),
+            key=lambda item: (
+                item.effective_from,
+                item.tax_year or item.premium_year or -1,
+                _version_key(item.version),
+            ),
         )
 
 

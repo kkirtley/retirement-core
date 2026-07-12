@@ -69,8 +69,8 @@ class MissouriTaxRules(BaseModel):
     def from_dataset(cls, dataset: RuleDataset) -> Self:
         if dataset.dataset_type != "state_individual_income_tax" or dataset.jurisdiction != "US-MO":
             raise ValueError("Expected a US-MO state individual income tax dataset")
-        if dataset.effective_from is None:
-            raise ValueError("Missouri tax datasets require effective_from")
+        if dataset.tax_year is None or dataset.effective_from is None:
+            raise ValueError("Missouri tax datasets require tax_year and effective_from")
         values = dataset.values
         return cls(
             dataset_id=dataset.dataset_id,

@@ -87,3 +87,8 @@ class DatasetStatus(StrEnum):
     ENACTED = "enacted"
     PROJECTED = "projected"
     HISTORICAL = "historical"
+
+
+class MedicareBasePremiumMode(StrEnum):
+    MODELED_SEPARATELY = "modeled_separately"
+    INCLUDED_IN_SPENDING = "included_in_spending"
