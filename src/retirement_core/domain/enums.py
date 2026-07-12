@@ -19,6 +19,19 @@ class SocialSecurityBenefitSubtype(StrEnum):
     SURVIVOR = "survivor"
 
 
+class QcdTargetMode(StrEnum):
+    NONE = "none"
+    FIXED_FLOOR = "fixed_floor"
+    HOUSEHOLD_RMD = "household_rmd"
+    MAX_OF_FLOOR_AND_HOUSEHOLD_RMD = "max_of_floor_and_household_rmd"
+
+
+class QcdAllocationMethod(StrEnum):
+    PROPORTIONAL_TO_OWNER_RMD = "proportional_to_owner_rmd"
+    OWNER_PRIORITY = "owner_priority"
+    ACCOUNT_PRIORITY = "account_priority"
+
+
 class AccountType(StrEnum):
     TRADITIONAL_IRA = "traditional_ira"
     ROTH_IRA = "roth_ira"

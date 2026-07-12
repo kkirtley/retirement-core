@@ -1,0 +1,60 @@
+{
+  "dataset_id": "US-FED-RMD-QCD-2026-v1",
+  "dataset_type": "rmd_qcd",
+  "jurisdiction": "US-FED",
+  "tax_year": 2026,
+  "version": "1",
+  "status": "enacted",
+  "values": {
+    "rmd_start_age_schedule": [
+      {"birth_date_start": null, "birth_date_end": "1949-06-30", "start_age": {"years": 70, "months": 6}},
+      {"birth_date_start": "1949-07-01", "birth_date_end": "1950-12-31", "start_age": {"years": 72, "months": 0}},
+      {"birth_date_start": "1951-01-01", "birth_date_end": "1959-12-31", "start_age": {"years": 73, "months": 0}},
+      {"birth_date_start": "1960-01-01", "birth_date_end": null, "start_age": {"years": 75, "months": 0}}
+    ],
+    "qcd_eligibility_age": {"years": 70, "months": 6},
+    "statutory_qcd_maximum_per_owner": "111000.00",
+    "uniform_lifetime_table": {
+      "72": "27.4", "73": "26.5", "74": "25.5", "75": "24.6", "76": "23.7",
+      "77": "22.9", "78": "22.0", "79": "21.1", "80": "20.2", "81": "19.4",
+      "82": "18.5", "83": "17.7", "84": "16.8", "85": "16.0", "86": "15.2",
+      "87": "14.4", "88": "13.7", "89": "12.9", "90": "12.2", "91": "11.5",
+      "92": "10.8", "93": "10.1", "94": "9.5", "95": "8.9", "96": "8.4",
+      "97": "7.8", "98": "7.3", "99": "6.8", "100": "6.4", "101": "6.0",
+      "102": "5.6", "103": "5.2", "104": "4.9", "105": "4.6", "106": "4.3",
+      "107": "4.1", "108": "3.9", "109": "3.7", "110": "3.5", "111": "3.4",
+      "112": "3.3", "113": "3.1", "114": "3.0", "115": "2.9", "116": "2.8",
+      "117": "2.7", "118": "2.5", "119": "2.3", "120": "2.0"
+    },
+    "account_eligibility": {
+      "supported_rmd_account_types": ["traditional_ira"],
+      "qcd_eligible_account_types": ["traditional_ira"],
+      "qcd_accounts_can_satisfy_owner_rmd": true
+    },
+    "tax_treatment": {
+      "gross_rmd_is_ordinary_income": true,
+      "qcd_excluded_from_ordinary_income": true,
+      "qcd_counts_toward_same_owner_rmd": true,
+      "qcd_cannot_satisfy_another_owner_rmd": true,
+      "direct_trustee_to_charity_required": true,
+      "deductible_contribution_offset_applies": true
+    }
+  },
+  "provenance": {
+    "publisher": "Internal Revenue Service",
+    "source_title": "Publication 590-B (2025)",
+    "source_url": "https://www.irs.gov/publications/p590b",
+    "source_reference": "RMD rules, qualified charitable distributions, Appendix B Table III",
+    "retrieved_at": "2026-07-12",
+    "effective_date": "2026-01-01",
+    "additional_sources": [
+      {
+        "publisher": "Internal Revenue Service",
+        "source_title": "Internal Revenue Bulletin 2026-06",
+        "source_url": "https://www.irs.gov/irb/2026-06_IRB",
+        "source_reference": "Applicable ages for required minimum distributions"
+      }
+    ]
+  },
+  "projection_assumptions": {}
+}

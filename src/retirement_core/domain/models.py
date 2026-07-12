@@ -4,13 +4,15 @@ from datetime import date
 from decimal import Decimal
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from retirement_core.domain.enums import (
     AccountType,
     CharitableGivingMethod,
     FilingStatus,
     IncomeType,
+    QcdAllocationMethod,
+    QcdTargetMode,
     SocialSecurityBenefitSubtype,
     TransactionType,
 )
@@ -60,10 +62,54 @@ class IncomeInput(BaseModel):
     taxable_state: bool = True
 
 
+class AnnualQcdOverride(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    paused: bool = False
+    target_amount: NonNegativeMoney | None = None
+    reason: str | None = None
+
+
+class QcdPolicyInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    enabled: bool = False
+    annual_qcd_floor: NonNegativeMoney = Decimal("0")
+    target_mode: QcdTargetMode = QcdTargetMode.NONE
+    allocation_method: QcdAllocationMethod = QcdAllocationMethod.PROPORTIONAL_TO_OWNER_RMD
+    owner_priority: list[str] = Field(default_factory=list)
+    account_priority: list[str] = Field(default_factory=list)
+    paused_years: set[int] = Field(default_factory=set)
+    annual_overrides: dict[int, AnnualQcdOverride] = Field(default_factory=dict)
+
+
 class GivingPolicyInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     target_rate_after_tax_income: Percent = Decimal("0.10")
-    qcd_enabled: bool = True
+    qcd_policy: QcdPolicyInput = Field(default_factory=QcdPolicyInput)
+    qcd_enabled: bool | None = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def migrate_legacy_qcd_policy(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+        data = dict(value)
+        legacy = data.get("qcd_enabled")
+        nested = data.get("qcd_policy")
+        if legacy is not None and nested is not None:
+            nested_enabled = (
+                nested.get("enabled", False)
+                if isinstance(nested, dict)
+                else getattr(nested, "enabled", None)
+            )
+            if nested_enabled is None or bool(legacy) != bool(nested_enabled):
+                raise ValueError("qcd_enabled conflicts with qcd_policy.enabled")
+        elif legacy is not None:
+            data["qcd_policy"] = {
+                "enabled": bool(legacy),
+                "annual_qcd_floor": "0.00",
+                "target_mode": "none",
+            }
+        return data
 
 
 class AnnualTransactionInput(BaseModel):

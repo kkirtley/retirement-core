@@ -17,7 +17,15 @@
     "income": [
       {"id": "pension", "owner_id": "person_b", "annual_amount": "5000.00", "start_date": "2033-01-01", "end_date": null, "destination_account_id": "household_cash", "taxable_federal": true, "taxable_state": true}
     ],
-    "giving_policy": {"target_rate_after_tax_income": "0.10", "qcd_enabled": true},
+    "giving_policy": {
+      "target_rate_after_tax_income": "0.10",
+      "qcd_policy": {
+        "enabled": true,
+        "annual_qcd_floor": "15000.00",
+        "target_mode": "max_of_floor_and_household_rmd",
+        "allocation_method": "proportional_to_owner_rmd"
+      }
+    },
     "metadata": {}
   },
   "options": {"reporting_frequency": "annual", "persist_results": false, "scenario_id": "baseline"}
