@@ -16,7 +16,7 @@ class HouseholdModel(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
-    plans: Mapped[list["PlanModel"]] = relationship(back_populates="household")
+    plans: Mapped[list[PlanModel]] = relationship(back_populates="household")
 
 
 class PlanModel(Base):
@@ -30,7 +30,7 @@ class PlanModel(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     household: Mapped[HouseholdModel] = relationship(back_populates="plans")
-    versions: Mapped[list["PlanVersionModel"]] = relationship(back_populates="plan")
+    versions: Mapped[list[PlanVersionModel]] = relationship(back_populates="plan")
 
 
 class PlanVersionModel(Base):
@@ -47,7 +47,7 @@ class PlanVersionModel(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     plan: Mapped[PlanModel] = relationship(back_populates="versions")
-    runs: Mapped[list["ScenarioRunModel"]] = relationship(back_populates="plan_version")
+    runs: Mapped[list[ScenarioRunModel]] = relationship(back_populates="plan_version")
 
 
 class ScenarioRunModel(Base):
@@ -66,7 +66,7 @@ class ScenarioRunModel(Base):
     )
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     plan_version: Mapped[PlanVersionModel] = relationship(back_populates="runs")
-    annual_accounts: Mapped[list["AnnualAccountResultModel"]] = relationship(back_populates="run")
+    annual_accounts: Mapped[list[AnnualAccountResultModel]] = relationship(back_populates="run")
 
 
 class AnnualAccountResultModel(Base):
