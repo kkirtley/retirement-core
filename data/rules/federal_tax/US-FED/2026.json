@@ -5,11 +5,28 @@
   "tax_year": 2026,
   "version": "1",
   "status": "enacted",
-  "values": {"filing_statuses": {}},
+  "values": {
+    "filing_statuses": {
+      "married_filing_jointly": {
+        "standard_deduction": "32200.00",
+        "ordinary_income_brackets": [
+          {"lower_bound": "0.00", "upper_bound": "24800.00", "rate": "0.10"},
+          {"lower_bound": "24800.00", "upper_bound": "100800.00", "rate": "0.12"},
+          {"lower_bound": "100800.00", "upper_bound": "211400.00", "rate": "0.22"},
+          {"lower_bound": "211400.00", "upper_bound": "403550.00", "rate": "0.24"},
+          {"lower_bound": "403550.00", "upper_bound": "512450.00", "rate": "0.32"},
+          {"lower_bound": "512450.00", "upper_bound": "768700.00", "rate": "0.35"},
+          {"lower_bound": "768700.00", "upper_bound": null, "rate": "0.37"}
+        ]
+      }
+    }
+  },
   "provenance": {
-    "publisher": "IRS",
-    "source_url": null,
-    "retrieved_at": "2026-07-11",
+    "publisher": "Internal Revenue Service",
+    "source_title": "Revenue Procedure 2025-32",
+    "source_url": "https://www.eitc.irs.gov/pub/irs-drop/rp-25-32.pdf",
+    "source_reference": "Sections 4.01 and 4.14(1)",
+    "retrieved_at": "2026-07-12",
     "effective_date": "2026-01-01"
   },
   "projection_assumptions": {}
