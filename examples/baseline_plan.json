@@ -1,0 +1,23 @@
+{
+  "plan": {
+    "schema_version": "1.0",
+    "household_name": "Example Household",
+    "filing_status": "married_filing_jointly",
+    "start_date": "2033-01-01",
+    "end_date": "2035-12-31",
+    "people": [
+      {"id": "person_a", "name": "Person A", "date_of_birth": "1967-01-01", "retirement_date": "2033-01-01"},
+      {"id": "person_b", "name": "Person B", "date_of_birth": "1967-02-01", "retirement_date": "2032-01-01"}
+    ],
+    "accounts": [
+      {"id": "person_a_roth", "owner_id": "person_a", "account_type": "roth_ira", "starting_balance": "100000.00", "annual_return": "0.06"}
+    ],
+    "social_security": [],
+    "income": [
+      {"id": "pension", "owner_id": "person_b", "annual_amount": "5000.00", "start_date": "2033-01-01", "end_date": null, "taxable_federal": true, "taxable_state": true}
+    ],
+    "giving_policy": {"target_rate_after_tax_income": "0.10", "qcd_enabled": true},
+    "metadata": {}
+  },
+  "options": {"reporting_frequency": "annual", "persist_results": false, "scenario_id": "baseline"}
+}

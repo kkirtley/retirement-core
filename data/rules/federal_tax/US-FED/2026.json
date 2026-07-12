@@ -1,0 +1,16 @@
+{
+  "dataset_id": "US-FED-2026-v1",
+  "dataset_type": "federal_tax",
+  "jurisdiction": "US-FED",
+  "tax_year": 2026,
+  "version": "1",
+  "status": "enacted",
+  "values": {"filing_statuses": {}},
+  "provenance": {
+    "publisher": "IRS",
+    "source_url": null,
+    "retrieved_at": "2026-07-11",
+    "effective_date": "2026-01-01"
+  },
+  "projection_assumptions": {}
+}

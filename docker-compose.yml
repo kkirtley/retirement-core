@@ -1,0 +1,33 @@
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: retirement
+      POSTGRES_USER: retirement
+      POSTGRES_PASSWORD: retirement
+    ports: ["5432:5432"]
+    volumes: ["retirement_pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U retirement -d retirement"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: .
+    environment:
+      APP_ENV: development
+      APP_NAME: retirement-core
+      API_PREFIX: /api/v1
+      DATABASE_URL: postgresql+psycopg://retirement:retirement@db:5432/retirement
+      RULES_PATH: /app/data/rules
+    ports: ["8000:8000"]
+    depends_on:
+      db:
+        condition: service_healthy
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn retirement_core.api.app:create_app --factory --host 0.0.0.0 --port 8000"
+
+volumes:
+  retirement_pgdata:
