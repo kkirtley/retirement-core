@@ -9,12 +9,21 @@ from retirement_core.engine.ledger import reconcile_account, reconcile_household
 from retirement_core.engine.projection import run_projection
 from retirement_core.infrastructure.rules.json_provider import JsonRuleDatasetProvider
 from retirement_core.rules.models import FederalTaxRules
+from retirement_core.rules.rmd_qcd import RmdQcdRules
 
 
 @pytest.fixture(scope="module")
 def federal_tax_rules() -> FederalTaxRules:
     dataset = JsonRuleDatasetProvider(Path("data/rules")).get_dataset("federal_tax", "US-FED", 2026)
     return FederalTaxRules.from_dataset(dataset, FilingStatus.MARRIED_FILING_JOINTLY)
+
+
+@pytest.fixture(scope="module")
+def rmd_qcd_rules() -> RmdQcdRules:
+    dataset = JsonRuleDatasetProvider(Path("data/rules")).get_applicable_dataset(
+        "rmd_qcd", "US-FED", 2026
+    )
+    return RmdQcdRules.from_dataset(dataset)
 
 
 def _request(
@@ -178,6 +187,7 @@ def test_zero_federal_tax_after_taxable_social_security(
 
 def test_roth_conversion_increases_taxable_social_security_without_being_spendable(
     federal_tax_rules: FederalTaxRules,
+    rmd_qcd_rules: RmdQcdRules,
 ) -> None:
     request = _request(
         social_security=[_social_security("benefit_a", "spouse_a", "1666.67")],
@@ -185,7 +195,7 @@ def test_roth_conversion_increases_taxable_social_security_without_being_spendab
         cash_balance="1000",
     )
 
-    result = run_projection(request, federal_tax_rules)
+    result = run_projection(request, federal_tax_rules, {2026: rmd_qcd_rules})
     household = result.annual_household[0]
     taxation = household.social_security_taxation
 

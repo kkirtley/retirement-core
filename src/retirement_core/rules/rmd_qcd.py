@@ -53,6 +53,8 @@ class RmdQcdDatasetValues(BaseModel):
 class RmdQcdRules(RmdQcdDatasetValues):
     dataset_id: str
     tax_year: int
+    effective_from: date
+    effective_to: date | None
     provenance: Provenance
 
     @classmethod
@@ -60,9 +62,13 @@ class RmdQcdRules(RmdQcdDatasetValues):
         if dataset.dataset_type != "rmd_qcd" or dataset.jurisdiction != "US-FED":
             raise ValueError("Expected a US-FED rmd_qcd rule dataset")
         values = RmdQcdDatasetValues.model_validate(dataset.values)
+        if dataset.effective_from is None:
+            raise ValueError("RMD/QCD datasets require effective_from")
         return cls(
             dataset_id=dataset.dataset_id,
             tax_year=dataset.tax_year,
+            effective_from=dataset.effective_from,
+            effective_to=dataset.effective_to,
             provenance=dataset.provenance,
             **values.model_dump(),
         )

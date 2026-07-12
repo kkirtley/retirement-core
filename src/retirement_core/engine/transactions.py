@@ -51,6 +51,7 @@ def apply_transaction(
     spending = Decimal("0")
     contribution = Decimal("0")
     federal_tax_payment = Decimal("0")
+    taxable_ordinary_income = Decimal("0")
     charitable_method = transaction.charitable_method
 
     match transaction.transaction_type:
@@ -113,16 +114,35 @@ def apply_transaction(
         case TransactionType.CHARITABLE_GIVING:
             charitable_method = transaction.charitable_method or CharitableGivingMethod.CASH
             if charitable_method is CharitableGivingMethod.QCD:
-                raise ValueError("QCD transactions are reserved for a future implementation")
-            _require_absent(destination, "Cash charitable giving cannot have a destination account")
-            source = _require_type(
-                source,
-                {AccountType.CASH, AccountType.TAXABLE},
-                "Cash charitable giving source must be cash or taxable",
+                _require_absent(destination, "QCD cannot have a destination account")
+                source = _require_present(source, "QCD requires a source account")
+                debit(source)
+                activity[source.id].withdrawals += amount
+                activity[source.id].qcd += amount
+            else:
+                _require_absent(
+                    destination, "Cash charitable giving cannot have a destination account"
+                )
+                source = _require_type(
+                    source,
+                    {AccountType.CASH, AccountType.TAXABLE},
+                    "Cash charitable giving source must be cash or taxable",
+                )
+                debit(source)
+                activity[source.id].withdrawals += amount
+                spending = amount
+        case TransactionType.RMD_DISTRIBUTION:
+            source = _require_present(source, "RMD distribution requires a source account")
+            destination = _require_type(
+                destination, {AccountType.CASH}, "RMD distribution destination must be cash"
             )
+            _require_distinct(source, destination)
             debit(source)
+            credit(destination)
             activity[source.id].withdrawals += amount
-            spending = amount
+            activity[destination.id].transfers_in += amount
+            cash_withdrawal = amount
+            taxable_ordinary_income = amount
         case TransactionType.FEDERAL_TAX_PAYMENT:
             _require_absent(destination, "Federal tax payment cannot have a destination account")
             source = _require_type(
@@ -159,6 +179,7 @@ def apply_transaction(
         spending=spending,
         contribution=contribution,
         federal_tax_payment=federal_tax_payment,
+        taxable_ordinary_income=taxable_ordinary_income,
     )
 
 

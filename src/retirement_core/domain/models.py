@@ -14,6 +14,7 @@ from retirement_core.domain.enums import (
     QcdAllocationMethod,
     QcdTargetMode,
     SocialSecurityBenefitSubtype,
+    TaxableRmdAllocationMethod,
     TransactionType,
 )
 
@@ -112,6 +113,15 @@ class GivingPolicyInput(BaseModel):
         return data
 
 
+class TaxableRmdSourcePolicyInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    allocation_method: TaxableRmdAllocationMethod
+    account_priority: list[str] = Field(default_factory=list)
+    explicit_account_amounts: dict[int, dict[str, dict[str, NonNegativeMoney]]] = Field(
+        default_factory=dict
+    )
+
+
 class AnnualTransactionInput(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     id: str
@@ -137,6 +147,8 @@ class PlanInput(BaseModel):
     transactions: list[AnnualTransactionInput] = Field(default_factory=list)
     giving_policy: GivingPolicyInput = Field(default_factory=GivingPolicyInput)
     federal_tax_payment_account_id: str | None = None
+    taxable_rmd_destination_account_by_owner: dict[str, str] = Field(default_factory=dict)
+    taxable_rmd_source_policy: TaxableRmdSourcePolicyInput | None = None
     allow_negative_cash_balance: bool = False
     metadata: dict[str, str] = Field(default_factory=dict)
 
@@ -183,6 +195,42 @@ class AnnualHouseholdResult(BaseModel):
     federal_tax_result: FederalIncomeTaxResult | None = None
     social_security_benefits: tuple[AnnualSocialSecurityBenefit, ...] = ()
     social_security_taxation: SocialSecurityTaxationResult | None = None
+    rmd_qcd_result: AnnualRmdQcdResult | None = None
+
+
+class AnnualRmdAccountResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    owner_id: str
+    source_account_id: str
+    prior_year_end_balance: Decimal
+    divisor: Decimal | None
+    gross_rmd: Decimal
+    qcd: Decimal
+    taxable_rmd: Decimal
+    destination_account_id: str | None
+
+
+class AnnualRmdOwnerResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    owner_id: str
+    gross_rmd: Decimal
+    qcd: Decimal
+    taxable_rmd: Decimal
+    destination_account_id: str | None
+    accounts: tuple[AnnualRmdAccountResult, ...]
+
+
+class AnnualRmdQcdResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    year: int
+    rule_dataset_id: str
+    configured_qcd_target: Decimal
+    gross_rmd: Decimal
+    qcd: Decimal
+    taxable_rmd: Decimal
+    qcd_capacity_shortfall: Decimal
+    owners: tuple[AnnualRmdOwnerResult, ...]
+    warnings: tuple[str, ...] = ()
 
 
 class AnnualSocialSecurityBenefit(BaseModel):
@@ -250,6 +298,7 @@ class TransactionLedgerEntry(BaseModel):
     spending: Decimal = Decimal("0")
     contribution: Decimal = Decimal("0")
     federal_tax_payment: Decimal = Decimal("0")
+    taxable_ordinary_income: Decimal = Decimal("0")
 
 
 class ProjectionResult(BaseModel):

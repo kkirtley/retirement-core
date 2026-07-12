@@ -1,11 +1,23 @@
+from collections.abc import Sequence
+from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 
 from retirement_core import __version__
-from retirement_core.domain.enums import AccountType, FilingStatus, IncomeType, TransactionType
+from retirement_core.domain.enums import (
+    AccountType,
+    CharitableGivingMethod,
+    FilingStatus,
+    IncomeType,
+    TaxableRmdAllocationMethod,
+    TransactionType,
+)
 from retirement_core.domain.models import (
     AccountInput,
     AnnualAccountResult,
     AnnualHouseholdResult,
+    AnnualRmdAccountResult,
+    AnnualRmdOwnerResult,
+    AnnualRmdQcdResult,
     AnnualSocialSecurityBenefit,
     AnnualTransactionInput,
     FederalIncomeTaxResult,
@@ -20,9 +32,17 @@ from retirement_core.engine.ledger import (
     reconcile_account,
     reconcile_household_cash,
 )
+from retirement_core.engine.rmd_qcd import (
+    AccountRmdResult,
+    RmdAccountInput,
+    RmdOwnerInput,
+    calculate_qcd,
+    calculate_rmd,
+)
 from retirement_core.engine.social_security_tax import calculate_taxable_social_security
 from retirement_core.engine.transactions import AccountActivity, apply_transaction
 from retirement_core.rules.models import FederalTaxRules
+from retirement_core.rules.rmd_qcd import RmdQcdRules
 
 _PRETAX_ACCOUNT_TYPES = {AccountType.TRADITIONAL_IRA, AccountType.TRADITIONAL_401K}
 _CENT = Decimal("0.01")
@@ -31,6 +51,7 @@ _CENT = Decimal("0.01")
 def run_projection(
     request: ProjectionRequest,
     federal_tax_rules: FederalTaxRules | None = None,
+    rmd_qcd_rules_by_year: dict[int, RmdQcdRules] | None = None,
 ) -> ProjectionResult:
     plan = request.plan
     accounts = {account.id: account for account in plan.accounts}
@@ -41,6 +62,7 @@ def run_projection(
     annual_accounts: list[AnnualAccountResult] = []
     annual_household: list[AnnualHouseholdResult] = []
     ledger_entries: list[TransactionLedgerEntry] = []
+    rmd_qcd_rules_by_year = rmd_qcd_rules_by_year or {}
 
     first_year = plan.start_date.year
     last_year = plan.end_date.year
@@ -51,6 +73,7 @@ def run_projection(
     ]
     if invalid_years:
         raise ValueError(f"Transactions outside the projection period: {', '.join(invalid_years)}")
+    _validate_projection_generated_transaction_types(plan.transactions)
 
     for year in range(first_year, last_year + 1):
         beginning_balances = balances.copy()
@@ -64,6 +87,27 @@ def run_projection(
             growth_by_account[account_id] = growth
             balances[account_id] += growth
 
+        rmd_qcd_result: AnnualRmdQcdResult | None = None
+        year_entries: list[TransactionLedgerEntry] = []
+        if _requires_rmd_qcd(plan.people, plan.accounts):
+            try:
+                rmd_qcd_rules = rmd_qcd_rules_by_year[year]
+            except KeyError as error:
+                raise ValueError(
+                    f"No applicable RMD/QCD rule dataset exists for projection year {year}"
+                ) from error
+            rmd_qcd_result, generated_entries = _apply_annual_rmd_qcd(
+                request,
+                year,
+                beginning_balances,
+                accounts,
+                balances,
+                activity,
+                rmd_qcd_rules,
+            )
+            year_entries.extend(generated_entries)
+            ledger_entries.extend(generated_entries)
+
         plan_transactions = [
             transaction for transaction in plan.transactions if transaction.year == year
         ]
@@ -76,7 +120,6 @@ def run_projection(
         annual_transactions = _income_transactions(request, year)
         annual_transactions.extend(social_security_transactions)
         annual_transactions.extend(plan_transactions)
-        year_entries: list[TransactionLedgerEntry] = []
         for transaction in annual_transactions:
             entry = apply_transaction(
                 transaction,
@@ -92,6 +135,7 @@ def run_projection(
             request,
             year,
             plan_transactions,
+            sum((entry.taxable_ordinary_income for entry in year_entries), Decimal("0")),
             sum(
                 (benefit.gross_benefit for benefit in social_security_benefits),
                 Decimal("0"),
@@ -170,6 +214,7 @@ def run_projection(
                 federal_tax_result=federal_tax_result,
                 social_security_benefits=tuple(social_security_benefits),
                 social_security_taxation=social_security_taxation,
+                rmd_qcd_result=rmd_qcd_result,
             )
         )
 
@@ -179,6 +224,9 @@ def run_projection(
     }
     if federal_tax_rules is not None and first_year <= 2026 <= last_year:
         provenance["federal_tax_dataset_id"] = federal_tax_rules.dataset_id
+    for year, rules in sorted(rmd_qcd_rules_by_year.items()):
+        if first_year <= year <= last_year:
+            provenance[f"rmd_qcd_dataset_id:{year}"] = rules.dataset_id
 
     return ProjectionResult(
         engine_version=__version__,
@@ -189,17 +237,289 @@ def run_projection(
         transactions=ledger_entries,
         warnings=[
             "Federal tax is limited to 2026 MFJ ordinary pension income, Roth conversions, "
-            "and taxable Social Security from modeled sources. RMD, QCD, Medicare, IRMAA, "
-            "state-tax, and survivor engines are not implemented."
+            "taxable Social Security, and generated taxable RMDs from modeled sources. "
+            "Medicare, IRMAA, state-tax, inherited-IRA, and survivor engines are not implemented."
         ],
         provenance=provenance,
     )
+
+
+def _requires_rmd_qcd(people: Sequence[object], accounts: list[AccountInput]) -> bool:
+    return bool(people) and any(
+        account.account_type in _PRETAX_ACCOUNT_TYPES for account in accounts
+    )
+
+
+def _apply_annual_rmd_qcd(
+    request: ProjectionRequest,
+    year: int,
+    prior_year_end_balances: dict[str, Decimal],
+    accounts: dict[str, AccountInput],
+    balances: dict[str, Decimal],
+    activity: dict[str, AccountActivity],
+    rules: RmdQcdRules,
+) -> tuple[AnnualRmdQcdResult, list[TransactionLedgerEntry]]:
+    if not (
+        rules.effective_from <= date(year, 12, 31)
+        and (rules.effective_to is None or date(year, 12, 31) <= rules.effective_to)
+    ):
+        raise ValueError(f"RMD/QCD dataset {rules.dataset_id} is not effective for {year}")
+    owner_inputs = tuple(
+        RmdOwnerInput(owner_id=person.id, date_of_birth=person.date_of_birth)
+        for person in request.plan.people
+    )
+    account_inputs = tuple(
+        RmdAccountInput(
+            account_id=account.id,
+            owner_id=account.owner_id,
+            account_type=account.account_type,
+            prior_year_end_balance=prior_year_end_balances[account.id],
+        )
+        for account in request.plan.accounts
+    )
+    rmd = calculate_rmd(year, owner_inputs, account_inputs, rules)
+    qcd = calculate_qcd(
+        request.plan.giving_policy.qcd_policy, owner_inputs, account_inputs, rmd, rules
+    )
+    entries: list[TransactionLedgerEntry] = []
+    qcd_by_account: dict[str, Decimal] = {}
+    for owner_result in qcd.owners:
+        for allocation in owner_result.accounts:
+            transaction = AnnualTransactionInput(
+                id=f"qcd:{owner_result.owner_id}:{allocation.account_id}:{year}",
+                year=year,
+                transaction_type=TransactionType.CHARITABLE_GIVING,
+                amount=allocation.amount,
+                source_account_id=allocation.account_id,
+                charitable_method=CharitableGivingMethod.QCD,
+            )
+            entry = apply_transaction(
+                transaction,
+                accounts,
+                balances,
+                activity,
+                allow_negative_cash_balance=request.plan.allow_negative_cash_balance,
+            )
+            if not rules.tax_treatment.qcd_excluded_from_ordinary_income:
+                entry = entry.model_copy(update={"taxable_ordinary_income": allocation.amount})
+            entries.append(entry)
+            qcd_by_account[allocation.account_id] = (
+                qcd_by_account.get(allocation.account_id, Decimal("0")) + allocation.amount
+            )
+
+    qcd_by_owner = {item.owner_id: item for item in qcd.owners}
+    annual_owners: list[AnnualRmdOwnerResult] = []
+    for owner_rmd in rmd.owners:
+        owner_qcd = qcd_by_owner[owner_rmd.owner_id]
+        destination_id = request.plan.taxable_rmd_destination_account_by_owner.get(
+            owner_rmd.owner_id
+        )
+        if owner_qcd.remaining_taxable_rmd > 0 and destination_id is None:
+            raise ValueError(
+                f"Owner {owner_rmd.owner_id} requires an explicit taxable RMD destination"
+            )
+        source_policy = request.plan.taxable_rmd_source_policy
+        if owner_qcd.remaining_taxable_rmd > 0 and source_policy is None:
+            raise ValueError(
+                f"Owner {owner_rmd.owner_id} requires an explicit taxable RMD source policy"
+            )
+        eligible_account_results = [item for item in owner_rmd.accounts if item.eligible]
+        taxable_by_account = (
+            _allocate_taxable_rmd_sources(
+                year,
+                owner_rmd.owner_id,
+                owner_qcd.remaining_taxable_rmd,
+                eligible_account_results,
+                balances,
+                source_policy.allocation_method,
+                source_policy.account_priority,
+                source_policy.explicit_account_amounts,
+            )
+            if source_policy is not None
+            else {item.account_id: Decimal("0") for item in eligible_account_results}
+        )
+        for account_id, amount in taxable_by_account.items():
+            if amount == 0:
+                continue
+            transaction = AnnualTransactionInput(
+                id=f"taxable-rmd:{owner_rmd.owner_id}:{account_id}:{year}",
+                year=year,
+                transaction_type=TransactionType.RMD_DISTRIBUTION,
+                amount=amount,
+                source_account_id=account_id,
+                destination_account_id=destination_id,
+            )
+            entry = apply_transaction(
+                transaction,
+                accounts,
+                balances,
+                activity,
+                allow_negative_cash_balance=request.plan.allow_negative_cash_balance,
+            )
+            if not rules.tax_treatment.gross_rmd_is_ordinary_income:
+                entry = entry.model_copy(update={"taxable_ordinary_income": Decimal("0")})
+            entries.append(entry)
+        reported_account_results = [
+            item
+            for item in owner_rmd.accounts
+            if item.eligible or qcd_by_account.get(item.account_id, Decimal("0")) > 0
+        ]
+        annual_accounts = tuple(
+            AnnualRmdAccountResult(
+                owner_id=owner_rmd.owner_id,
+                source_account_id=item.account_id,
+                prior_year_end_balance=prior_year_end_balances[item.account_id],
+                divisor=item.divisor,
+                gross_rmd=item.required_minimum_distribution,
+                qcd=qcd_by_account.get(item.account_id, Decimal("0")),
+                taxable_rmd=taxable_by_account.get(item.account_id, Decimal("0")),
+                destination_account_id=(
+                    destination_id
+                    if taxable_by_account.get(item.account_id, Decimal("0")) > 0
+                    else None
+                ),
+            )
+            for item in reported_account_results
+        )
+        annual_owners.append(
+            AnnualRmdOwnerResult(
+                owner_id=owner_rmd.owner_id,
+                gross_rmd=owner_rmd.required_minimum_distribution,
+                qcd=owner_qcd.actual_qcd,
+                taxable_rmd=owner_qcd.remaining_taxable_rmd,
+                destination_account_id=(
+                    destination_id if owner_qcd.remaining_taxable_rmd > 0 else None
+                ),
+                accounts=annual_accounts,
+            )
+        )
+    warnings = (
+        (f"QCD target capacity shortfall: {qcd.unmet_target}",) if qcd.unmet_target > 0 else ()
+    )
+    return (
+        AnnualRmdQcdResult(
+            year=year,
+            rule_dataset_id=rules.dataset_id,
+            configured_qcd_target=qcd.configured_household_target,
+            gross_rmd=rmd.household_rmd,
+            qcd=qcd.actual_qcd,
+            taxable_rmd=qcd.remaining_taxable_rmd,
+            qcd_capacity_shortfall=qcd.unmet_target,
+            owners=tuple(annual_owners),
+            warnings=warnings,
+        ),
+        entries,
+    )
+
+
+def _allocate_taxable_rmd_sources(
+    year: int,
+    owner_id: str,
+    total: Decimal,
+    account_results: list[AccountRmdResult],
+    live_balances: dict[str, Decimal],
+    method: TaxableRmdAllocationMethod,
+    account_priority: list[str],
+    explicit_account_amounts: dict[int, dict[str, dict[str, Decimal]]],
+) -> dict[str, Decimal]:
+    account_ids = [item.account_id for item in account_results]
+    gross_rmd = {item.account_id: item.required_minimum_distribution for item in account_results}
+    if total == 0:
+        return {account_id: Decimal("0") for account_id in account_ids}
+    if method is TaxableRmdAllocationMethod.EXPLICIT_ACCOUNT_AMOUNTS:
+        configured = explicit_account_amounts.get(year, {}).get(owner_id)
+        if configured is None:
+            raise ValueError(f"Explicit taxable RMD source amounts are required for {year}")
+        unknown = set(configured) - set(account_ids)
+        if unknown:
+            raise ValueError(
+                f"Explicit taxable RMD accounts do not belong to owner {owner_id}: "
+                f"{', '.join(sorted(unknown))}"
+            )
+        allocated = {
+            account_id: configured.get(account_id, Decimal("0")) for account_id in account_ids
+        }
+        if sum(allocated.values(), Decimal("0")) != total:
+            raise ValueError(
+                f"Explicit taxable RMD source amounts for owner {owner_id} must total {total}"
+            )
+        _validate_live_capacity(owner_id, allocated, live_balances)
+        return allocated
+    if method is TaxableRmdAllocationMethod.ACCOUNT_PRIORITY:
+        ordered = [account_id for account_id in account_priority if account_id in account_ids]
+        if not ordered:
+            raise ValueError(f"Taxable RMD account_priority is required for owner {owner_id}")
+        return _allocate_sequential(total, ordered, live_balances, owner_id)
+    if method is TaxableRmdAllocationMethod.STABLE_ACCOUNT_ID:
+        return _allocate_sequential(total, sorted(account_ids), live_balances, owner_id)
+    weights = {account_id: gross_rmd[account_id] for account_id in account_ids}
+    return _allocate_proportionally(total, account_ids, weights, live_balances, owner_id)
+
+
+def _allocate_sequential(
+    total: Decimal,
+    account_ids: list[str],
+    live_balances: dict[str, Decimal],
+    owner_id: str,
+) -> dict[str, Decimal]:
+    allocated = {account_id: Decimal("0") for account_id in account_ids}
+    remaining = total
+    for account_id in account_ids:
+        amount = min(remaining, live_balances[account_id])
+        allocated[account_id] = amount
+        remaining -= amount
+    if remaining > 0:
+        raise ValueError(f"Insufficient eligible IRA balance for owner {owner_id} taxable RMD")
+    return allocated
+
+
+def _allocate_proportionally(
+    total: Decimal,
+    account_ids: list[str],
+    weights: dict[str, Decimal],
+    live_balances: dict[str, Decimal],
+    owner_id: str,
+) -> dict[str, Decimal]:
+    allocated = {account_id: Decimal("0") for account_id in account_ids}
+    remaining = total
+    available = list(account_ids)
+    while remaining > 0 and available:
+        total_weight = sum((weights[item] for item in available), Decimal("0"))
+        if total_weight == 0:
+            raise ValueError(f"No account RMD weight is available for owner {owner_id}")
+        before = remaining
+        for index, account_id in enumerate(available):
+            share = (
+                remaining
+                if index == len(available) - 1
+                else (before * weights[account_id] / total_weight).quantize(
+                    _CENT, rounding=ROUND_HALF_UP
+                )
+            )
+            capacity = live_balances[account_id] - allocated[account_id]
+            amount = min(share, capacity, remaining)
+            allocated[account_id] += amount
+            remaining -= amount
+        available = [item for item in available if allocated[item] < live_balances[item]]
+    if remaining > 0:
+        raise ValueError(f"Insufficient eligible IRA balance for owner {owner_id} taxable RMD")
+    return allocated
+
+
+def _validate_live_capacity(
+    owner_id: str,
+    allocated: dict[str, Decimal],
+    live_balances: dict[str, Decimal],
+) -> None:
+    if any(amount > live_balances[account_id] for account_id, amount in allocated.items()):
+        raise ValueError(f"Insufficient eligible IRA balance for owner {owner_id} taxable RMD")
 
 
 def _calculate_annual_federal_tax(
     request: ProjectionRequest,
     year: int,
     plan_transactions: list[AnnualTransactionInput],
+    taxable_rmd: Decimal,
     gross_social_security: Decimal,
     federal_tax_rules: FederalTaxRules | None,
 ) -> tuple[FederalIncomeTaxResult | None, SocialSecurityTaxationResult | None]:
@@ -233,6 +553,7 @@ def _calculate_annual_federal_tax(
         ),
         Decimal("0"),
     )
+    ordinary_income += taxable_rmd
     social_security_taxation = calculate_taxable_social_security(
         gross_social_security,
         ordinary_income,
@@ -250,10 +571,6 @@ def _validate_2026_transaction_tax_treatment(
     accounts: dict[str, AccountInput],
 ) -> None:
     for transaction in transactions:
-        if transaction.transaction_type is TransactionType.FEDERAL_TAX_PAYMENT:
-            raise ValueError("Federal tax payment transactions are generated by the projection")
-        if transaction.transaction_type is TransactionType.SOCIAL_SECURITY_INCOME:
-            raise ValueError("Social Security income transactions are generated by the projection")
         if transaction.transaction_type is TransactionType.INCOME:
             raise ValueError(
                 f"Federal tax treatment is unsupported for manual income transaction "
@@ -272,6 +589,23 @@ def _validate_2026_transaction_tax_treatment(
                 f"Federal tax treatment is unsupported for 2026 withdrawal "
                 f"{transaction.id} from {source.account_type.value}"
             )
+
+
+def _validate_projection_generated_transaction_types(
+    transactions: list[AnnualTransactionInput],
+) -> None:
+    for transaction in transactions:
+        if transaction.transaction_type is TransactionType.FEDERAL_TAX_PAYMENT:
+            raise ValueError("Federal tax payment transactions are generated by the projection")
+        if transaction.transaction_type is TransactionType.SOCIAL_SECURITY_INCOME:
+            raise ValueError("Social Security income transactions are generated by the projection")
+        if transaction.transaction_type is TransactionType.RMD_DISTRIBUTION:
+            raise ValueError("RMD distribution transactions are generated by the projection")
+        if (
+            transaction.transaction_type is TransactionType.CHARITABLE_GIVING
+            and transaction.charitable_method is CharitableGivingMethod.QCD
+        ):
+            raise ValueError("QCD transactions are generated by the projection")
 
 
 def _social_security_transactions(

@@ -35,6 +35,8 @@ class RuleDataset(BaseModel):
     dataset_type: str
     jurisdiction: str
     tax_year: int
+    effective_from: date | None = None
+    effective_to: date | None = None
     version: str
     status: DatasetStatus
     values: dict[str, Any]

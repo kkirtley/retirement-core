@@ -3,6 +3,8 @@
   "dataset_type": "rmd_qcd",
   "jurisdiction": "US-FED",
   "tax_year": 2026,
+  "effective_from": "2026-01-01",
+  "effective_to": null,
   "version": "1",
   "status": "enacted",
   "values": {

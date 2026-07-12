@@ -32,6 +32,13 @@ class QcdAllocationMethod(StrEnum):
     ACCOUNT_PRIORITY = "account_priority"
 
 
+class TaxableRmdAllocationMethod(StrEnum):
+    PROPORTIONAL_TO_ACCOUNT_RMD = "proportional_to_account_rmd"
+    ACCOUNT_PRIORITY = "account_priority"
+    EXPLICIT_ACCOUNT_AMOUNTS = "explicit_account_amounts"
+    STABLE_ACCOUNT_ID = "stable_account_id"
+
+
 class AccountType(StrEnum):
     TRADITIONAL_IRA = "traditional_ira"
     ROTH_IRA = "roth_ira"
@@ -52,6 +59,7 @@ class TransactionType(StrEnum):
     CHARITABLE_GIVING = "charitable_giving"
     FEDERAL_TAX_PAYMENT = "federal_tax_payment"
     SOCIAL_SECURITY_INCOME = "social_security_income"
+    RMD_DISTRIBUTION = "rmd_distribution"
 
 
 class CharitableGivingMethod(StrEnum):
