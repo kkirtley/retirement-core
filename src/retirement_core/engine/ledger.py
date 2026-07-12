@@ -27,8 +27,9 @@ def reconcile_household_cash(
     spending: Decimal,
     contributions: Decimal,
     cash_surplus: Decimal,
+    federal_tax: Decimal = Decimal("0"),
 ) -> None:
-    expected = spendable_income + cash_withdrawals - spending - contributions
+    expected = spendable_income + cash_withdrawals - spending - contributions - federal_tax
     if abs(expected - cash_surplus) > RECONCILIATION_TOLERANCE:
         raise ValueError(
             f"Household cash flow failed reconciliation: expected {expected}, actual {cash_surplus}"

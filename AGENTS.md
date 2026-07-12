@@ -15,6 +15,7 @@ The project currently provides:
   and charitable-giving transactions
 - Cash accounts with negative-balance protection
 - Annual account and household cash-flow reconciliation
+- 2026 married-filing-jointly federal tax for ordinary pension income and Roth conversions
 - Immutable transaction inputs and generated ledger results
 - A FastAPI adapter
 - PostgreSQL models and Alembic migration scaffolding
@@ -24,8 +25,9 @@ The project currently provides:
 The current deterministic timing convention applies annual growth to
 beginning-of-year balances, followed by generated income and declared transactions.
 
-Taxes, RMDs, QCD processing, Social Security taxation, Medicare IRMAA, survivor
-logic, optimization, reporting exports, and frontend behavior are not implemented.
+Federal tax outside the supported 2026 MFJ scope, RMDs, QCD processing, Social
+Security taxation, state tax, Medicare IRMAA, survivor logic, optimization,
+reporting exports, and frontend behavior are not implemented.
 
 ## Repository structure
 
@@ -57,7 +59,8 @@ docs/               Architecture documentation and ADRs
    The current aggregate account result records income in `contributions` and spending
    in `withdrawals`; transaction ledger entries preserve their explicit types.
 4. Household cash flow must reconcile annually:
-   `spendable income + cash withdrawals - spending - contributions = surplus or deficit`.
+   `spendable income + cash withdrawals - spending - contributions - taxes
+   = surplus or deficit`.
 5. A reconciliation difference greater than `$0.01` must fail the projection.
 6. Transfers must be explicit. Roth conversions are account transfers, not
    spendable household cash.
@@ -80,7 +83,7 @@ docs/               Architecture documentation and ADRs
 
 Future work may add:
 
-- Federal and state income taxes
+- Additional federal and state income-tax rules
 - Social Security benefit and taxation rules
 - RMD and owner-specific QCD processing
 - Medicare premiums and IRMAA

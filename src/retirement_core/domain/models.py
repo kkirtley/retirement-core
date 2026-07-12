@@ -10,6 +10,7 @@ from retirement_core.domain.enums import (
     AccountType,
     CharitableGivingMethod,
     FilingStatus,
+    IncomeType,
     TransactionType,
 )
 
@@ -45,6 +46,7 @@ class SocialSecurityInput(BaseModel):
 class IncomeInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     id: str
+    income_type: IncomeType = IncomeType.UNSPECIFIED
     owner_id: str | None = None
     annual_amount: NonNegativeMoney
     start_date: date
@@ -84,6 +86,7 @@ class PlanInput(BaseModel):
     income: list[IncomeInput] = Field(default_factory=list)
     transactions: list[AnnualTransactionInput] = Field(default_factory=list)
     giving_policy: GivingPolicyInput = Field(default_factory=GivingPolicyInput)
+    federal_tax_payment_account_id: str | None = None
     allow_negative_cash_balance: bool = False
     metadata: dict[str, str] = Field(default_factory=dict)
 
@@ -127,6 +130,33 @@ class AnnualHouseholdResult(BaseModel):
     contributions: Decimal = Decimal("0")
     cash_withdrawals: Decimal = Decimal("0")
     cash_surplus: Decimal
+    federal_tax_result: FederalIncomeTaxResult | None = None
+
+
+class FederalBracketTax(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    lower_bound: Decimal
+    upper_bound: Decimal | None
+    rate: Decimal
+    income_taxed: Decimal
+    tax: Decimal
+
+
+class FederalMarginalBracket(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    lower_bound: Decimal
+    upper_bound: Decimal | None
+    rate: Decimal
+
+
+class FederalIncomeTaxResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    gross_income: Decimal
+    standard_deduction: Decimal
+    taxable_income: Decimal
+    tax_by_bracket: tuple[FederalBracketTax, ...]
+    total_federal_tax: Decimal
+    marginal_bracket: FederalMarginalBracket | None
 
 
 class TransactionLedgerEntry(BaseModel):
@@ -142,6 +172,7 @@ class TransactionLedgerEntry(BaseModel):
     cash_withdrawal: Decimal = Decimal("0")
     spending: Decimal = Decimal("0")
     contribution: Decimal = Decimal("0")
+    federal_tax_payment: Decimal = Decimal("0")
 
 
 class ProjectionResult(BaseModel):

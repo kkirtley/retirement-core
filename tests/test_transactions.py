@@ -276,7 +276,10 @@ def test_growth_is_applied_before_transactions() -> None:
 
     result = run_projection(request)
     assert _account_balances(result) == {"traditional": Decimal("60.00"), "cash": Decimal("50")}
-    assert result.provenance["transaction_timing"] == "beginning_balance_growth_then_transactions"
+    assert (
+        result.provenance["transaction_timing"]
+        == "beginning_balance_growth_then_transactions_then_tax"
+    )
 
 
 def test_input_transactions_are_immutable_and_results_are_separate() -> None:

@@ -1,30 +1,14 @@
 from decimal import ROUND_HALF_UP, Decimal
 
-from pydantic import BaseModel, ConfigDict
-
 from retirement_core.domain.enums import FilingStatus
-from retirement_core.rules.models import FederalTaxBracket, FederalTaxRules
+from retirement_core.domain.models import (
+    FederalBracketTax,
+    FederalIncomeTaxResult,
+    FederalMarginalBracket,
+)
+from retirement_core.rules.models import FederalTaxRules
 
 CENT = Decimal("0.01")
-
-
-class FederalBracketTax(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-    lower_bound: Decimal
-    upper_bound: Decimal | None
-    rate: Decimal
-    income_taxed: Decimal
-    tax: Decimal
-
-
-class FederalIncomeTaxResult(BaseModel):
-    model_config = ConfigDict(extra="forbid", frozen=True)
-    gross_income: Decimal
-    standard_deduction: Decimal
-    taxable_income: Decimal
-    tax_by_bracket: tuple[FederalBracketTax, ...]
-    total_federal_tax: Decimal
-    marginal_bracket: FederalTaxBracket | None
 
 
 def calculate_federal_income_tax(
@@ -44,7 +28,7 @@ def calculate_federal_income_tax(
 
     taxable_income = max(gross_ordinary_income - rules.standard_deduction, Decimal("0"))
     bracket_taxes: list[FederalBracketTax] = []
-    marginal_bracket: FederalTaxBracket | None = None
+    marginal_bracket: FederalMarginalBracket | None = None
 
     if taxable_income > 0:
         for bracket in rules.ordinary_income_brackets:
@@ -62,7 +46,11 @@ def calculate_federal_income_tax(
                     )
                 )
             if upper is None or taxable_income <= upper:
-                marginal_bracket = bracket
+                marginal_bracket = FederalMarginalBracket(
+                    lower_bound=bracket.lower_bound,
+                    upper_bound=bracket.upper_bound,
+                    rate=bracket.rate,
+                )
                 break
 
     total_tax = sum((bracket.tax for bracket in bracket_taxes), Decimal("0"))

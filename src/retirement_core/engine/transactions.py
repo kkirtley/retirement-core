@@ -50,6 +50,7 @@ def apply_transaction(
     cash_withdrawal = Decimal("0")
     spending = Decimal("0")
     contribution = Decimal("0")
+    federal_tax_payment = Decimal("0")
     charitable_method = transaction.charitable_method
 
     match transaction.transaction_type:
@@ -122,6 +123,14 @@ def apply_transaction(
             debit(source)
             activity[source.id].withdrawals += amount
             spending = amount
+        case TransactionType.FEDERAL_TAX_PAYMENT:
+            _require_absent(destination, "Federal tax payment cannot have a destination account")
+            source = _require_type(
+                source, {AccountType.CASH}, "Federal tax payment source must be cash"
+            )
+            debit(source)
+            activity[source.id].withdrawals += amount
+            federal_tax_payment = amount
 
     for account_id, change in balance_changes.items():
         new_balance = balances[account_id] + change
@@ -149,6 +158,7 @@ def apply_transaction(
         cash_withdrawal=cash_withdrawal,
         spending=spending,
         contribution=contribution,
+        federal_tax_payment=federal_tax_payment,
     )
 
 

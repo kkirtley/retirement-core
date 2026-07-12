@@ -8,6 +8,11 @@ class FilingStatus(StrEnum):
     MARRIED_FILING_SEPARATELY = "married_filing_separately"
 
 
+class IncomeType(StrEnum):
+    PENSION = "pension"
+    UNSPECIFIED = "unspecified"
+
+
 class AccountType(StrEnum):
     TRADITIONAL_IRA = "traditional_ira"
     ROTH_IRA = "roth_ira"
@@ -26,6 +31,7 @@ class TransactionType(StrEnum):
     TRANSFER = "transfer"
     ROTH_CONVERSION = "roth_conversion"
     CHARITABLE_GIVING = "charitable_giving"
+    FEDERAL_TAX_PAYMENT = "federal_tax_payment"
 
 
 class CharitableGivingMethod(StrEnum):
