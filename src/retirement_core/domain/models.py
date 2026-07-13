@@ -111,6 +111,24 @@ class AssumptionSource(BaseModel):
     as_of_date: date | None = None
 
 
+class W2PayrollTaxBasesInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    social_security_wages: NonNegativeMoney
+    medicare_wages: NonNegativeMoney
+
+
+class SelfEmploymentTaxBaseInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    business_id: str
+    net_business_profit: NonNegativeMoney
+
+    @model_validator(mode="after")
+    def validate_business_id(self) -> SelfEmploymentTaxBaseInput:
+        if not self.business_id.strip():
+            raise ValueError("Self-employment business_id must be nonblank")
+        return self
+
+
 class AnnualIncomeOverride(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     taxable_amount: NonNegativeMoney
@@ -119,6 +137,8 @@ class AnnualIncomeOverride(BaseModel):
     state_income_tax_withholding: NonNegativeMoney = Decimal("0")
     payroll_deductions_embedded_in_cash: str | None = None
     assumption_source: AssumptionSource | None = None
+    w2_payroll_tax_bases: W2PayrollTaxBasesInput | None = None
+    self_employment_tax_base: SelfEmploymentTaxBaseInput | None = None
 
 
 class ResolvedAnnualIncome(BaseModel):
@@ -134,6 +154,8 @@ class ResolvedAnnualIncome(BaseModel):
     payroll_deductions_embedded_in_cash: str | None = None
     assumption_source: AssumptionSource | None = None
     destination_account_id: str
+    w2_payroll_tax_bases: W2PayrollTaxBasesInput | None = None
+    self_employment_tax_base: SelfEmploymentTaxBaseInput | None = None
 
 
 class IncomeInput(BaseModel):
@@ -156,6 +178,8 @@ class IncomeInput(BaseModel):
     destination_account_id: str | None = None
     taxable_federal: bool | None = None
     taxable_state: bool | None = None
+    w2_payroll_tax_bases: W2PayrollTaxBasesInput | None = None
+    self_employment_tax_base: SelfEmploymentTaxBaseInput | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -209,6 +233,44 @@ class IncomeInput(BaseModel):
             self.taxable_federal is not True or self.taxable_state is not True
         ):
             raise ValueError("W2_WAGES must be federally and Missouri taxable")
+        if self.income_type is IncomeType.SELF_EMPLOYMENT_NET_INCOME:
+            if self.owner_id is None or self.self_employment_tax_base is None:
+                raise ValueError(
+                    "SELF_EMPLOYMENT_NET_INCOME requires owner_id and self_employment_tax_base"
+                )
+            if self.annual_taxable_amount != self.self_employment_tax_base.net_business_profit:
+                raise ValueError(
+                    "Self-employment annual_taxable_amount must equal net business profit"
+                )
+            for year, override in self.annual_overrides.items():
+                if override.self_employment_tax_base is None:
+                    raise ValueError(
+                        f"Self-employment override for {year} requires self_employment_tax_base"
+                    )
+                if override.taxable_amount != override.self_employment_tax_base.net_business_profit:
+                    raise ValueError(
+                        f"Self-employment override for {year} taxable amount must equal "
+                        "net business profit"
+                    )
+        elif self.self_employment_tax_base is not None:
+            raise ValueError(
+                "self_employment_tax_base is only valid for SELF_EMPLOYMENT_NET_INCOME"
+            )
+        if self.income_type is not IncomeType.W2_WAGES and self.w2_payroll_tax_bases is not None:
+            raise ValueError("w2_payroll_tax_bases are only valid for W2_WAGES")
+        for year, override in self.annual_overrides.items():
+            if self.income_type is not IncomeType.W2_WAGES and override.w2_payroll_tax_bases:
+                raise ValueError(
+                    f"W-2 payroll tax bases override for {year} is only valid for W2_WAGES"
+                )
+            if (
+                self.income_type is not IncomeType.SELF_EMPLOYMENT_NET_INCOME
+                and override.self_employment_tax_base
+            ):
+                raise ValueError(
+                    f"Self-employment tax base override for {year} is only valid for "
+                    "SELF_EMPLOYMENT_NET_INCOME"
+                )
         if self.income_type is IncomeType.VA_DISABILITY:
             if self.taxable_federal is not False or self.taxable_state is not False:
                 raise ValueError("VA_DISABILITY must be federally and Missouri exempt")
@@ -352,6 +414,8 @@ class PlanInput(BaseModel):
     @model_validator(mode="after")
     def validate_plan_schedule(self) -> PlanInput:
         people = {person.id: person for person in self.people}
+        accounts = {account.id: account for account in self.accounts}
+        self_employment_by_owner: dict[str, str] = {}
         for account in self.accounts:
             invalid_years = sorted(
                 year
@@ -364,6 +428,32 @@ class PlanInput(BaseModel):
                     f"{', '.join(str(year) for year in invalid_years)}"
                 )
         for income in self.income:
+            if income.income_type is IncomeType.SELF_EMPLOYMENT_NET_INCOME:
+                if income.destination_account_id is None:
+                    raise ValueError(
+                        f"Self-employment income {income.id} requires a destination cash account"
+                    )
+                owner_id = income.owner_id or ""
+                if owner_id not in people:
+                    raise ValueError(
+                        f"Self-employment income {income.id} references an unknown owner {owner_id}"
+                    )
+                destination_account = accounts.get(income.destination_account_id)
+                if (
+                    destination_account is None
+                    or destination_account.account_type is not AccountType.CASH
+                ):
+                    raise ValueError(
+                        f"Self-employment income {income.id} requires an existing cash "
+                        "destination account"
+                    )
+                previous = self_employment_by_owner.get(owner_id)
+                if previous is not None:
+                    raise ValueError(
+                        "Only one self-employment business is supported per owner: "
+                        f"{previous}, {income.id}"
+                    )
+                self_employment_by_owner[owner_id] = income.id
             if income.stop_rule is IncomeStopRule.OWNER_RETIREMENT_DATE:
                 owner = people.get(income.owner_id or "")
                 if owner is None or owner.retirement_date is None:
@@ -371,16 +461,26 @@ class PlanInput(BaseModel):
                         f"Income {income.id} OWNER_RETIREMENT_DATE requires "
                         "an owner retirement_date"
                     )
-            if (
+            partial_first_year_source = (
                 (self.start_date.month != 1 or self.start_date.day != 1)
                 and income.start_date < self.start_date
                 and _income_active_on(income, self.start_date, people)
-                and self.start_date.year not in income.annual_overrides
-            ):
-                raise ValueError(
-                    f"Income {income.id} requires an annual override for partial "
-                    f"first projection year {self.start_date.year}"
-                )
+            )
+            if partial_first_year_source:
+                override = income.annual_overrides.get(self.start_date.year)
+                if override is None:
+                    raise ValueError(
+                        f"Income {income.id} requires an annual override for partial "
+                        f"first projection year {self.start_date.year}"
+                    )
+                if (
+                    income.income_type is IncomeType.SELF_EMPLOYMENT_NET_INCOME
+                    and override.self_employment_tax_base is None
+                ):
+                    raise ValueError(
+                        f"Self-employment income {income.id} requires an annual tax-base "
+                        f"override for partial first projection year {self.start_date.year}"
+                    )
         return self
 
 

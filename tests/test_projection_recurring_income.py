@@ -149,7 +149,10 @@ def test_partial_first_year_override_keeps_full_tax_year_wages_and_partial_cash(
                 "start_date": "2020-01-01",
                 "destination_account_id": "cash",
                 "annual_overrides": {
-                    "2026": {"taxable_amount": "195000", "spendable_cash_amount": "65000"}
+                    "2026": {
+                        "taxable_amount": "195000",
+                        "spendable_cash_amount": "65000",
+                    }
                 },
             }
         ],
@@ -425,7 +428,9 @@ def test_missouri_withholding_settles_as_a_refund(
 
 
 def test_self_employment_is_explicitly_unsupported(federal_rules: FederalTaxRules) -> None:
-    with pytest.raises(ValueError, match="SELF_EMPLOYMENT_NET_INCOME is unsupported"):
+    with pytest.raises(
+        ValueError, match="self-employment tax projection integration is not implemented"
+    ):
         run_projection(
             _request(
                 income=[
@@ -437,6 +442,10 @@ def test_self_employment_is_explicitly_unsupported(federal_rules: FederalTaxRule
                         "annual_spendable_cash_amount": "100",
                         "start_date": "2026-01-01",
                         "destination_account_id": "cash",
+                        "self_employment_tax_base": {
+                            "business_id": "business",
+                            "net_business_profit": "100",
+                        },
                     }
                 ]
             ),

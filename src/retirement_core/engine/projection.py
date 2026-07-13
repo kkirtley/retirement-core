@@ -121,6 +121,19 @@ def run_projection(
     if invalid_years:
         raise ValueError(f"Transactions outside the projection period: {', '.join(invalid_years)}")
     _validate_projection_generated_transaction_types(plan.transactions)
+    for year in range(first_year, last_year + 1):
+        resolved = _resolve_annual_income(request, year)
+        if any(item.income_type is IncomeType.SELF_EMPLOYMENT_NET_INCOME for item in resolved):
+            for income in resolved:
+                if (
+                    income.income_type is IncomeType.W2_WAGES
+                    and income.w2_payroll_tax_bases is None
+                ):
+                    raise ValueError(
+                        f"W-2 source {income.income_id} requires payroll tax bases for {year} "
+                        "when self-employment income is active"
+                    )
+            raise ValueError("self-employment tax projection integration is not implemented")
 
     for year in range(first_year, last_year + 1):
         beginning_balances = balances.copy()
@@ -1427,10 +1440,6 @@ def _resolve_annual_income(request: ProjectionRequest, year: int) -> list[Resolv
         )
         if year < income.start_date.year or (end_date is not None and year > end_date.year):
             continue
-        if income.income_type is IncomeType.SELF_EMPLOYMENT_NET_INCOME:
-            raise ValueError(
-                "SELF_EMPLOYMENT_NET_INCOME is unsupported until SE tax is implemented"
-            )
         if income.destination_account_id is None:
             raise ValueError(f"Income {income.id} requires a destination cash account")
         override = income.annual_overrides.get(year)
@@ -1441,6 +1450,8 @@ def _resolve_annual_income(request: ProjectionRequest, year: int) -> list[Resolv
             state_withholding = override.state_income_tax_withholding
             payroll_note = override.payroll_deductions_embedded_in_cash
             source = override.assumption_source or income.assumption_source
+            w2_payroll_tax_bases = override.w2_payroll_tax_bases
+            self_employment_tax_base = override.self_employment_tax_base
         else:
             taxable = income.annual_taxable_amount or Decimal("0")
             cash = income.annual_spendable_cash_amount or Decimal("0")
@@ -1448,6 +1459,8 @@ def _resolve_annual_income(request: ProjectionRequest, year: int) -> list[Resolv
             state_withholding = income.annual_state_income_tax_withholding
             payroll_note = income.payroll_deductions_embedded_in_cash
             source = income.assumption_source
+            w2_payroll_tax_bases = income.w2_payroll_tax_bases
+            self_employment_tax_base = income.self_employment_tax_base
             if full_calendar_year and _requires_monthly_proration(income, end_date, year):
                 if _has_partial_boundary_month(income.start_date, end_date, year):
                     raise ValueError(
@@ -1477,6 +1490,8 @@ def _resolve_annual_income(request: ProjectionRequest, year: int) -> list[Resolv
                 payroll_deductions_embedded_in_cash=payroll_note,
                 assumption_source=source,
                 destination_account_id=income.destination_account_id,
+                w2_payroll_tax_bases=w2_payroll_tax_bases,
+                self_employment_tax_base=self_employment_tax_base,
             )
         )
     return resolved
