@@ -120,6 +120,18 @@ def test_pension_income_is_taxed_and_paid_from_cash(
     assert tax.total_federal_tax == Decimal("7640.00")
     assert household.gross_income == Decimal("100000")
     assert household.cash_surplus == Decimal("92360.00")
+    liability = household.federal_tax_liability_result
+    assert liability is not None
+    assert liability.gross_federal_tax_liability == tax.total_federal_tax
+    assert liability.ordinary_federal_income_tax == tax.total_federal_tax
+    assert liability.regular_self_employment_tax == 0
+    assert liability.additional_medicare_tax == 0
+    assert liability.regular_self_employment_details == ()
+    assert liability.self_employment_tax_dataset_id is None
+    assert liability.additional_medicare_tax_dataset_id is None
+    assert liability.additional_medicare_tax_withholding == 0
+    assert liability.ordinary_income_tax_dataset_id == "US-FED-2026-v1"
+    assert liability.ordinary_income_tax_rule_provenance
     assert _balance(result, "cash") == Decimal("92360.00")
     assert result.provenance["federal_tax_dataset_id:2026"] == "US-FED-2026-v1"
     _assert_reconciles(result)
@@ -165,6 +177,9 @@ def test_income_below_standard_deduction_has_no_tax(
     assert tax.taxable_income == 0
     assert tax.total_federal_tax == 0
     assert tax.marginal_bracket is None
+    liability = result.annual_household[0].federal_tax_liability_result
+    assert liability is not None
+    assert liability.gross_federal_tax_liability == 0
     assert _balance(result, "cash") == Decimal("30000")
     assert not any(
         entry.transaction_type is TransactionType.FEDERAL_TAX_PAYMENT

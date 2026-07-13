@@ -52,6 +52,7 @@ from retirement_core.engine.federal_agi import (
     supported_provisional_income_before_social_security,
 )
 from retirement_core.engine.federal_tax import calculate_federal_income_tax
+from retirement_core.engine.federal_tax_liability import aggregate_federal_tax_liability
 from retirement_core.engine.ledger import (
     calculate_growth,
     reconcile_account,
@@ -227,6 +228,20 @@ def run_projection(
                 federal_tax_rules_by_year.get(year),
             )
         )
+        federal_tax_liability_result = (
+            aggregate_federal_tax_liability(
+                year,
+                plan.filing_status,
+                federal_tax_result,
+                federal_tax_rules_by_year[year].dataset_id,
+                (
+                    federal_tax_rules_by_year[year].provenance.source_title
+                    or federal_tax_rules_by_year[year].provenance.publisher
+                ),
+            )
+            if federal_tax_result is not None
+            else None
+        )
         missouri_tax_result = _calculate_annual_missouri_tax(
             request,
             year,
@@ -245,7 +260,9 @@ def run_projection(
             (income.state_income_tax_withholding for income in resolved_income), Decimal("0")
         )
         federal_liability = (
-            federal_tax_result.total_federal_tax if federal_tax_result is not None else Decimal("0")
+            federal_tax_liability_result.gross_federal_tax_liability
+            if federal_tax_liability_result is not None
+            else Decimal("0")
         )
         missouri_liability = (
             missouri_tax_result.total_tax if missouri_tax_result is not None else Decimal("0")
@@ -408,6 +425,7 @@ def run_projection(
                 cash_surplus=cash_surplus,
                 federal_agi_result=federal_agi_result,
                 federal_tax_result=federal_tax_result,
+                federal_tax_liability_result=federal_tax_liability_result,
                 social_security_benefits=tuple(social_security_benefits),
                 social_security_taxation=social_security_taxation,
                 rmd_qcd_result=rmd_qcd_result,

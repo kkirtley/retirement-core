@@ -225,6 +225,7 @@ def test_va_disability_only_year_succeeds_without_federal_results() -> None:
     household = result.annual_household[0]
     assert household.federal_agi_result is None
     assert household.federal_tax_result is None
+    assert household.federal_tax_liability_result is None
     assert household.gross_income == Decimal("100")
     assert household.cash_surplus == Decimal("100")
 

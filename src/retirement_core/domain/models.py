@@ -25,6 +25,7 @@ from retirement_core.domain.enums import (
     WorkplacePlanStatus,
     WorkplaceRmdTimingRule,
 )
+from retirement_core.domain.federal_liability import FederalTaxLiabilityResult
 from retirement_core.domain.medicare import AnnualIrmaaResult, MedicarePlanInput
 from retirement_core.domain.tax import AnnualFederalAgiResult
 
@@ -440,6 +441,7 @@ class AnnualHouseholdResult(BaseModel):
     cash_surplus: Decimal
     federal_agi_result: AnnualFederalAgiResult | None = None
     federal_tax_result: FederalIncomeTaxResult | None = None
+    federal_tax_liability_result: FederalTaxLiabilityResult | None = None
     social_security_benefits: tuple[AnnualSocialSecurityBenefit, ...] = ()
     social_security_taxation: SocialSecurityTaxationResult | None = None
     rmd_qcd_result: AnnualRmdQcdResult | None = None
