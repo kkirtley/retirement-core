@@ -18,7 +18,12 @@ from retirement_core.domain.models import (
     SocialSecurityTaxationResult,
     TransactionLedgerEntry,
 )
-from retirement_core.domain.tax import AnnualFederalAgiResult, FederalAgiComponentResult
+from retirement_core.domain.tax import (
+    AnnualFederalAgiResult,
+    AnnualSelfEmploymentTaxResult,
+    FederalAgiComponentResult,
+    SelfEmploymentAgiDetailResult,
+)
 
 _PRETAX_ACCOUNT_TYPES = {AccountType.TRADITIONAL_IRA, AccountType.TRADITIONAL_401K}
 
@@ -31,16 +36,38 @@ def build_annual_federal_agi(
     social_security_benefits: list[AnnualSocialSecurityBenefit],
     social_security_taxation: SocialSecurityTaxationResult | None,
     resolved_income: list[ResolvedAnnualIncome],
+    self_employment_results: tuple[AnnualSelfEmploymentTaxResult, ...] = (),
 ) -> AnnualFederalAgiResult:
     accounts = {account.id: account for account in request.plan.accounts}
     people = {person.id for person in request.plan.people}
     components: list[FederalAgiComponentResult] = []
     diagnostics: list[str] = []
+    _validate_self_employment_results(self_employment_results)
 
     taxable_pension = Decimal("0")
     taxable_wages = Decimal("0")
     taxable_interest = Decimal("0")
     tax_exempt_interest = Decimal("0")
+    self_employment_profit = sum(
+        (item.net_business_profit for item in self_employment_results), Decimal("0")
+    )
+    deductible_se_tax = sum(
+        (item.deductible_employer_equivalent_tax for item in self_employment_results),
+        Decimal("0"),
+    )
+    self_employment_details = tuple(
+        SelfEmploymentAgiDetailResult(
+            owner_id=item.owner_id,
+            net_business_profit=item.net_business_profit,
+            deductible_employer_equivalent_tax=item.deductible_employer_equivalent_tax,
+            net_agi_contribution=(
+                item.net_business_profit - item.deductible_employer_equivalent_tax
+            ),
+            se_tax_dataset_id=item.dataset_id,
+            rule_provenance=item.rule_provenance,
+        )
+        for item in self_employment_results
+    )
 
     resolved_by_id = {resolved.income_id: resolved for resolved in resolved_income}
     for income in request.plan.income:
@@ -258,7 +285,11 @@ def build_annual_federal_agi(
         federally_taxable_roth_conversions=taxable_roth_conversions,
         federally_taxable_social_security=taxable_social_security,
         taxable_interest=taxable_interest,
+        taxable_self_employment_profit=self_employment_profit,
         tax_exempt_interest=tax_exempt_interest,
+        adjustments_to_income=deductible_se_tax,
+        deductible_self_employment_tax=deductible_se_tax,
+        self_employment_details=self_employment_details,
         components=tuple(components),
         unsupported_income_diagnostics=tuple(diagnostics),
     )
@@ -286,7 +317,20 @@ def supported_provisional_income_before_social_security(
     agi: AnnualFederalAgiResult,
 ) -> Decimal:
     """Currently supported other income for Social Security provisional income."""
-    return supported_federal_ordinary_income_before_social_security(agi) + agi.tax_exempt_interest
+    return (
+        supported_federal_ordinary_income_before_social_security(agi)
+        + agi.taxable_self_employment_profit
+        - agi.deductible_self_employment_tax
+        + agi.tax_exempt_interest
+    )
+
+
+def _validate_self_employment_results(
+    results: tuple[AnnualSelfEmploymentTaxResult, ...],
+) -> None:
+    owners = [item.owner_id for item in results]
+    if len(owners) != len(set(owners)):
+        raise ValueError("Duplicate self-employment results would double-count an owner")
 
 
 def _component(
