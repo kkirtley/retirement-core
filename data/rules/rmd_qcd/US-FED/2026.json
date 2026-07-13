@@ -31,7 +31,21 @@
     "account_eligibility": {
       "supported_rmd_account_types": ["traditional_ira"],
       "qcd_eligible_account_types": ["traditional_ira"],
-      "qcd_accounts_can_satisfy_owner_rmd": true
+      "qcd_accounts_can_satisfy_owner_rmd": true,
+      "account_policies": {
+        "traditional_ira": {
+          "rmd_eligible": true,
+          "obligation_group_type": "ira_owner_aggregate",
+          "qcd_eligible": true,
+          "workplace_plan_timing_supported": false
+        },
+        "traditional_401k": {
+          "rmd_eligible": true,
+          "obligation_group_type": "traditional_401k_plan",
+          "qcd_eligible": false,
+          "workplace_plan_timing_supported": true
+        }
+      }
     },
     "tax_treatment": {
       "gross_rmd_is_ordinary_income": true,

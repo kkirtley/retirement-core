@@ -75,6 +75,22 @@ class AccountType(StrEnum):
     CASH = "cash"
 
 
+class WorkplacePlanStatus(StrEnum):
+    CURRENT_EMPLOYER = "current_employer"
+    FORMER_EMPLOYER = "former_employer"
+    UNKNOWN = "unknown"
+
+
+class WorkplaceRmdTimingRule(StrEnum):
+    STANDARD_STATUTORY_AGE = "standard_statutory_age"
+    LATER_OF_RETIREMENT = "later_of_retirement"
+
+
+class RmdObligationGroupType(StrEnum):
+    IRA_OWNER_AGGREGATE = "ira_owner_aggregate"
+    TRADITIONAL_401K_PLAN = "traditional_401k_plan"
+
+
 class TransactionType(StrEnum):
     INCOME = "income"
     SPENDING = "spending"

@@ -4,7 +4,7 @@ from typing import Annotated, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from retirement_core.domain.enums import AccountType
+from retirement_core.domain.enums import AccountType, RmdObligationGroupType
 from retirement_core.rules.models import Provenance, RuleDataset
 
 NonNegativeDecimal = Annotated[Decimal, Field(ge=0)]
@@ -23,11 +23,20 @@ class RmdStartAgeRule(BaseModel):
     start_age: AgeThreshold
 
 
+class RmdAccountPolicy(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    rmd_eligible: bool
+    obligation_group_type: RmdObligationGroupType
+    qcd_eligible: bool
+    workplace_plan_timing_supported: bool = False
+
+
 class RmdQcdAccountEligibilityRules(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     supported_rmd_account_types: frozenset[AccountType]
     qcd_eligible_account_types: frozenset[AccountType]
     qcd_accounts_can_satisfy_owner_rmd: bool
+    account_policies: dict[AccountType, RmdAccountPolicy] = Field(default_factory=dict)
 
 
 class RmdQcdTaxTreatmentRules(BaseModel):

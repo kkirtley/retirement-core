@@ -20,6 +20,8 @@ from retirement_core.domain.enums import (
     SocialSecurityBenefitSubtype,
     TaxableRmdAllocationMethod,
     TransactionType,
+    WorkplacePlanStatus,
+    WorkplaceRmdTimingRule,
 )
 from retirement_core.domain.medicare import AnnualIrmaaResult, MedicarePlanInput
 from retirement_core.domain.tax import AnnualFederalAgiResult
@@ -37,6 +39,34 @@ class PersonInput(BaseModel):
     retirement_date: date | None = None
 
 
+class WorkplacePlanRmdInput(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    employer_status: WorkplacePlanStatus
+    rmd_timing_rule: WorkplaceRmdTimingRule
+    is_five_percent_owner: bool | None = None
+    employment_end_date: date | None = None
+    taxable_rmd_destination_account_id: str | None = None
+
+    @model_validator(mode="after")
+    def validate_timing_configuration(self) -> WorkplacePlanRmdInput:
+        if self.rmd_timing_rule is WorkplaceRmdTimingRule.LATER_OF_RETIREMENT:
+            if self.employer_status is not WorkplacePlanStatus.CURRENT_EMPLOYER:
+                raise ValueError("LATER_OF_RETIREMENT requires CURRENT_EMPLOYER status")
+            if self.is_five_percent_owner is not False:
+                raise ValueError("LATER_OF_RETIREMENT requires is_five_percent_owner=false")
+        if (
+            self.is_five_percent_owner is True
+            and self.rmd_timing_rule is not WorkplaceRmdTimingRule.STANDARD_STATUTORY_AGE
+        ):
+            raise ValueError("A 5% owner must use STANDARD_STATUTORY_AGE")
+        if (
+            self.employer_status is WorkplacePlanStatus.FORMER_EMPLOYER
+            and self.rmd_timing_rule is not WorkplaceRmdTimingRule.STANDARD_STATUTORY_AGE
+        ):
+            raise ValueError("FORMER_EMPLOYER plans must use STANDARD_STATUTORY_AGE")
+        return self
+
+
 class AccountInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
     id: str
@@ -45,6 +75,16 @@ class AccountInput(BaseModel):
     starting_balance: NonNegativeMoney
     annual_return: InvestmentReturnRate = Decimal("0")
     annual_return_overrides: dict[int, InvestmentReturnRate] = Field(default_factory=dict)
+    workplace_plan_rmd: WorkplacePlanRmdInput | None = None
+
+    @model_validator(mode="after")
+    def validate_workplace_plan_rmd(self) -> AccountInput:
+        if (
+            self.workplace_plan_rmd is not None
+            and self.account_type is not AccountType.TRADITIONAL_401K
+        ):
+            raise ValueError("workplace_plan_rmd is only valid for TRADITIONAL_401K accounts")
+        return self
 
 
 class SocialSecurityInput(BaseModel):

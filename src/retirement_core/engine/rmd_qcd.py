@@ -5,8 +5,15 @@ from decimal import ROUND_HALF_UP, Decimal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from retirement_core.domain.enums import AccountType, QcdAllocationMethod, QcdTargetMode
-from retirement_core.domain.models import QcdPolicyInput
+from retirement_core.domain.enums import (
+    AccountType,
+    QcdAllocationMethod,
+    QcdTargetMode,
+    RmdObligationGroupType,
+    WorkplacePlanStatus,
+    WorkplaceRmdTimingRule,
+)
+from retirement_core.domain.models import QcdPolicyInput, WorkplacePlanRmdInput
 from retirement_core.rules.rmd_qcd import AgeThreshold, RmdQcdRules
 
 CENT = Decimal("0.01")
@@ -25,6 +32,7 @@ class RmdAccountInput(BaseModel):
     owner_id: str
     account_type: AccountType
     prior_year_end_balance: Decimal = Field(ge=0)
+    workplace_plan_rmd: WorkplacePlanRmdInput | None = None
 
 
 class AccountRmdResult(BaseModel):
@@ -51,6 +59,29 @@ class RmdCalculationResult(BaseModel):
     tax_year: int
     household_rmd: Decimal
     owners: tuple[OwnerRmdResult, ...]
+
+
+class RmdObligationResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    group_id: str
+    group_type: RmdObligationGroupType
+    owner_id: str
+    account_ids: tuple[str, ...]
+    prior_year_end_balances: dict[str, Decimal]
+    balance_date: date
+    distribution_year: int | None
+    payment_deadline: date | None
+    divisor: Decimal | None
+    required_amount: Decimal
+    rule_dataset_id: str
+    timing_rule: str
+    timing_provenance: str
+
+
+class RmdObligationCalculationResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    tax_year: int
+    obligations: tuple[RmdObligationResult, ...]
 
 
 class AccountQcdAllocation(BaseModel):
@@ -165,6 +196,189 @@ def calculate_rmd(
         tax_year=tax_year,
         household_rmd=_money(sum((o.required_minimum_distribution for o in results), ZERO)),
         owners=tuple(results),
+    )
+
+
+def calculate_rmd_obligations(
+    tax_year: int,
+    owners: tuple[RmdOwnerInput, ...],
+    accounts: tuple[RmdAccountInput, ...],
+    rules: RmdQcdRules,
+) -> RmdObligationCalculationResult:
+    """Calculate compliance groups without generating transactions or applying QCDs."""
+    owner_by_id = {owner.owner_id: owner for owner in owners}
+    balance_date = date(tax_year - 1, 12, 31)
+    obligations: list[RmdObligationResult] = []
+    for owner in sorted(owners, key=lambda item: item.owner_id):
+        owner_accounts = [account for account in accounts if account.owner_id == owner.owner_id]
+        ira_accounts = [
+            account
+            for account in owner_accounts
+            if _obligation_group_type(account, rules) is RmdObligationGroupType.IRA_OWNER_AGGREGATE
+        ]
+        if ira_accounts:
+            obligations.append(_ira_obligation(tax_year, owner, ira_accounts, balance_date, rules))
+        for account in sorted(owner_accounts, key=lambda item: item.account_id):
+            if (
+                _obligation_group_type(account, rules)
+                is RmdObligationGroupType.TRADITIONAL_401K_PLAN
+            ):
+                obligations.append(
+                    _workplace_plan_obligation(tax_year, owner, account, balance_date, rules)
+                )
+    unknown_owners = {account.owner_id for account in accounts} - set(owner_by_id)
+    if unknown_owners:
+        raise ValueError(
+            f"RMD accounts reference unknown owners: {', '.join(sorted(unknown_owners))}"
+        )
+    return RmdObligationCalculationResult(tax_year=tax_year, obligations=tuple(obligations))
+
+
+def _obligation_group_type(
+    account: RmdAccountInput,
+    rules: RmdQcdRules,
+) -> RmdObligationGroupType | None:
+    policy = rules.account_eligibility.account_policies.get(account.account_type)
+    if policy is not None:
+        return policy.obligation_group_type if policy.rmd_eligible else None
+    if (
+        account.account_type is AccountType.TRADITIONAL_IRA
+        and account.account_type in rules.account_eligibility.supported_rmd_account_types
+    ):
+        return RmdObligationGroupType.IRA_OWNER_AGGREGATE
+    if account.account_type is AccountType.TRADITIONAL_401K:
+        raise ValueError(
+            f"RMD/QCD dataset {rules.dataset_id} requires an explicit Traditional 401(k) "
+            "account policy"
+        )
+    return None
+
+
+def _ira_obligation(
+    tax_year: int,
+    owner: RmdOwnerInput,
+    accounts: list[RmdAccountInput],
+    balance_date: date,
+    rules: RmdQcdRules,
+) -> RmdObligationResult:
+    first_year = _first_standard_distribution_year(owner.date_of_birth, tax_year, rules)
+    due = tax_year >= first_year
+    age, _ = _age_on(owner.date_of_birth, date(tax_year, 12, 31))
+    divisor = _divisor_for_age(age, rules) if due else None
+    required = (
+        _money(
+            sum(
+                (_money(account.prior_year_end_balance / divisor) for account in accounts),
+                ZERO,
+            )
+        )
+        if divisor is not None
+        else ZERO
+    )
+    return RmdObligationResult(
+        group_id=f"ira:{owner.owner_id}",
+        group_type=RmdObligationGroupType.IRA_OWNER_AGGREGATE,
+        owner_id=owner.owner_id,
+        account_ids=tuple(
+            account.account_id for account in sorted(accounts, key=lambda item: item.account_id)
+        ),
+        prior_year_end_balances={
+            account.account_id: account.prior_year_end_balance for account in accounts
+        },
+        balance_date=balance_date,
+        distribution_year=tax_year if due else None,
+        payment_deadline=_payment_deadline(tax_year, first_year) if due else None,
+        divisor=divisor,
+        required_amount=required,
+        rule_dataset_id=rules.dataset_id,
+        timing_rule="ira_standard_statutory_age",
+        timing_provenance="versioned statutory RMD start-age schedule",
+    )
+
+
+def _workplace_plan_obligation(
+    tax_year: int,
+    owner: RmdOwnerInput,
+    account: RmdAccountInput,
+    balance_date: date,
+    rules: RmdQcdRules,
+) -> RmdObligationResult:
+    standard_first_year = _first_standard_distribution_year(owner.date_of_birth, tax_year, rules)
+    workplace = account.workplace_plan_rmd
+    due = False
+    first_year: int | None = None
+    timing_rule = "unknown"
+    provenance = "workplace-plan status is not configured"
+    if tax_year >= standard_first_year and workplace is None:
+        raise ValueError(
+            f"Traditional 401(k) account {account.account_id} requires workplace-plan RMD status"
+        )
+    if workplace is not None:
+        timing_rule = workplace.rmd_timing_rule.value
+        if workplace.employer_status is WorkplacePlanStatus.UNKNOWN:
+            if tax_year >= standard_first_year:
+                raise ValueError(
+                    f"Traditional 401(k) account {account.account_id} has unknown "
+                    "workplace-plan status"
+                )
+            provenance = "workplace-plan status unknown; statutory age not yet reached"
+        elif workplace.rmd_timing_rule is WorkplaceRmdTimingRule.STANDARD_STATUTORY_AGE:
+            first_year = standard_first_year
+            due = tax_year >= first_year
+            provenance = "versioned statutory RMD start-age schedule"
+        else:
+            employment_end = workplace.employment_end_date
+            if employment_end is None or employment_end > date(tax_year, 12, 31):
+                provenance = "current-employer later-of-retirement rule; employment continues"
+            else:
+                first_year = max(standard_first_year, employment_end.year)
+                due = tax_year >= first_year
+                provenance = (
+                    "current-employer later-of-retirement rule and explicit employment end date"
+                )
+    age, _ = _age_on(owner.date_of_birth, date(tax_year, 12, 31))
+    divisor = _divisor_for_age(age, rules) if due else None
+    required = _money(account.prior_year_end_balance / divisor) if divisor is not None else ZERO
+    return RmdObligationResult(
+        group_id=f"traditional-401k:{account.account_id}",
+        group_type=RmdObligationGroupType.TRADITIONAL_401K_PLAN,
+        owner_id=owner.owner_id,
+        account_ids=(account.account_id,),
+        prior_year_end_balances={account.account_id: account.prior_year_end_balance},
+        balance_date=balance_date,
+        distribution_year=tax_year if due else None,
+        payment_deadline=_payment_deadline(tax_year, first_year) if due and first_year else None,
+        divisor=divisor,
+        required_amount=required,
+        rule_dataset_id=rules.dataset_id,
+        timing_rule=timing_rule,
+        timing_provenance=provenance,
+    )
+
+
+def _first_standard_distribution_year(dob: date, tax_year: int, rules: RmdQcdRules) -> int:
+    start_year = dob.year
+    for year in range(start_year, tax_year + 1):
+        if _meets_age(dob, date(year, 12, 31), _rmd_start_age(dob, rules)):
+            return year
+    return tax_year + 1
+
+
+def _divisor_for_age(age: int, rules: RmdQcdRules) -> Decimal:
+    divisor = rules.uniform_lifetime_table.get(age)
+    if divisor is not None:
+        return divisor
+    max_age = max(rules.uniform_lifetime_table)
+    if age > max_age:
+        return rules.uniform_lifetime_table[max_age]
+    raise ValueError(f"No Uniform Lifetime divisor for age {age}")
+
+
+def _payment_deadline(distribution_year: int, first_distribution_year: int) -> date:
+    return (
+        date(distribution_year + 1, 4, 1)
+        if distribution_year == first_distribution_year
+        else date(distribution_year, 12, 31)
     )
 
 
