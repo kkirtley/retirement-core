@@ -234,6 +234,8 @@ def apply_transaction(
             else None
         ),
         roth_conversion_method=transaction.roth_conversion_method,
+        rmd_obligation_group_id=transaction.rmd_obligation_group_id,
+        rmd_obligation_group_type=transaction.rmd_obligation_group_type,
     )
 
 

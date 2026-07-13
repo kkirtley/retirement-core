@@ -7,6 +7,7 @@ from retirement_core.domain.enums import (
     CharitableGivingMethod,
     FederalAgiComponentType,
     IncomeType,
+    RmdObligationGroupType,
     TransactionType,
 )
 from retirement_core.domain.models import (
@@ -136,6 +137,12 @@ def build_annual_federal_agi(
         match entry.transaction_type:
             case TransactionType.RMD_DISTRIBUTION:
                 taxable_rmd += entry.taxable_ordinary_income
+                rmd_provenance = (
+                    "generated taxable Traditional 401(k) RMD distribution"
+                    if entry.rmd_obligation_group_type
+                    is RmdObligationGroupType.TRADITIONAL_401K_PLAN
+                    else "generated taxable IRA RMD distribution"
+                )
                 components.append(
                     _component(
                         FederalAgiComponentType.TAXABLE_RMD_DISTRIBUTION,
@@ -145,7 +152,7 @@ def build_annual_federal_agi(
                         included_in_irmaa_magi=True,
                         source_account_id=entry.source_account_id,
                         source_transaction_ids=(entry.transaction_id,),
-                        provenance="generated taxable RMD distribution",
+                        provenance=rmd_provenance,
                     )
                 )
             case TransactionType.WITHDRAWAL:

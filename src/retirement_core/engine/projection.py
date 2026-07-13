@@ -13,6 +13,8 @@ from retirement_core.domain.enums import (
     IncomeType,
     MedicareBasePremiumMode,
     PensionType,
+    RmdFirstPaymentTiming,
+    RmdObligationGroupType,
     SocialSecurityBenefitSubtype,
     TaxableRmdAllocationMethod,
     TransactionType,
@@ -27,6 +29,7 @@ from retirement_core.domain.models import (
     AnnualAccountResult,
     AnnualHouseholdResult,
     AnnualRmdAccountResult,
+    AnnualRmdObligationGroupResult,
     AnnualRmdOwnerResult,
     AnnualRmdQcdResult,
     AnnualSocialSecurityBenefit,
@@ -65,6 +68,7 @@ from retirement_core.engine.rmd_qcd import (
     RmdOwnerInput,
     calculate_qcd,
     calculate_rmd,
+    calculate_rmd_obligations,
 )
 from retirement_core.engine.social_security_tax import calculate_taxable_social_security
 from retirement_core.engine.transactions import AccountActivity, apply_transaction
@@ -481,28 +485,27 @@ def _fail_for_partial_first_year_rmd(
     plan = request.plan
     if year != plan.start_date.year or plan.start_date == date(year, 1, 1):
         return
-    rmd = calculate_rmd(
-        year,
-        tuple(
-            RmdOwnerInput(owner_id=person.id, date_of_birth=person.date_of_birth)
-            for person in plan.people
-        ),
-        tuple(
-            RmdAccountInput(
-                account_id=account.id,
-                owner_id=account.owner_id,
-                account_type=account.account_type,
-                prior_year_end_balance=Decimal("0"),
-            )
-            for account in plan.accounts
-        ),
-        rules,
+    owner_inputs = tuple(
+        RmdOwnerInput(owner_id=person.id, date_of_birth=person.date_of_birth)
+        for person in plan.people
     )
+    account_inputs = tuple(
+        RmdAccountInput(
+            account_id=account.id,
+            owner_id=account.owner_id,
+            account_type=account.account_type,
+            prior_year_end_balance=Decimal("0"),
+            workplace_plan_rmd=account.workplace_plan_rmd,
+        )
+        for account in plan.accounts
+    )
+    rmd = calculate_rmd(year, owner_inputs, account_inputs, rules)
+    obligations = calculate_rmd_obligations(year, owner_inputs, account_inputs, rules)
     if any(
         account.eligible and account.divisor is not None
         for owner in rmd.owners
         for account in owner.accounts
-    ):
+    ) or any(obligation.divisor is not None for obligation in obligations.obligations):
         raise ValueError(
             f"Cannot calculate RMD for partial first projection year {year}: "
             "starting balances are as of plan.start_date, not prior-year-end balances"
@@ -609,10 +612,12 @@ def _apply_annual_rmd_qcd(
             owner_id=account.owner_id,
             account_type=account.account_type,
             prior_year_end_balance=prior_year_end_balances[account.id],
+            workplace_plan_rmd=account.workplace_plan_rmd,
         )
         for account in request.plan.accounts
     )
     rmd = calculate_rmd(year, owner_inputs, account_inputs, rules)
+    obligations = calculate_rmd_obligations(year, owner_inputs, account_inputs, rules)
     qcd = calculate_qcd(
         request.plan.giving_policy.qcd_policy, owner_inputs, account_inputs, rmd, rules
     )
@@ -643,6 +648,7 @@ def _apply_annual_rmd_qcd(
             )
 
     qcd_by_owner = {item.owner_id: item for item in qcd.owners}
+    taxable_by_group: dict[str, Decimal] = {}
     annual_owners: list[AnnualRmdOwnerResult] = []
     for owner_rmd in rmd.owners:
         owner_qcd = qcd_by_owner[owner_rmd.owner_id]
@@ -683,6 +689,8 @@ def _apply_annual_rmd_qcd(
                 amount=amount,
                 source_account_id=account_id,
                 destination_account_id=destination_id,
+                rmd_obligation_group_id=f"ira:{owner_rmd.owner_id}",
+                rmd_obligation_group_type=RmdObligationGroupType.IRA_OWNER_AGGREGATE,
             )
             entry = apply_transaction(
                 transaction,
@@ -694,6 +702,7 @@ def _apply_annual_rmd_qcd(
             if not rules.tax_treatment.gross_rmd_is_ordinary_income:
                 entry = entry.model_copy(update={"taxable_ordinary_income": Decimal("0")})
             entries.append(entry)
+        taxable_by_group[f"ira:{owner_rmd.owner_id}"] = owner_qcd.remaining_taxable_rmd
         reported_account_results = [
             item
             for item in owner_rmd.accounts
@@ -728,6 +737,47 @@ def _apply_annual_rmd_qcd(
                 accounts=annual_accounts,
             )
         )
+    for obligation in obligations.obligations:
+        if obligation.group_type is not RmdObligationGroupType.TRADITIONAL_401K_PLAN:
+            continue
+        if obligation.required_amount == 0:
+            taxable_by_group[obligation.group_id] = Decimal("0")
+            continue
+        account_id = obligation.account_ids[0]
+        account = accounts[account_id]
+        workplace = account.workplace_plan_rmd
+        if workplace is None or workplace.taxable_rmd_destination_account_id is None:
+            raise ValueError(
+                "Traditional 401(k) account "
+                f"{account_id} requires an explicit taxable RMD destination"
+            )
+        if workplace.first_rmd_payment_timing is RmdFirstPaymentTiming.DEFER_TO_FOLLOWING_YEAR:
+            raise ValueError("DEFER_TO_FOLLOWING_YEAR first RMD payment timing is not implemented")
+        if balances[account_id] < obligation.required_amount:
+            raise ValueError(
+                f"Insufficient live Traditional 401(k) balance for RMD account {account_id}"
+            )
+        transaction = AnnualTransactionInput(
+            id=f"taxable-rmd-401k:{obligation.owner_id}:{account_id}:{year}",
+            year=year,
+            transaction_type=TransactionType.RMD_DISTRIBUTION,
+            amount=obligation.required_amount,
+            source_account_id=account_id,
+            destination_account_id=workplace.taxable_rmd_destination_account_id,
+            rmd_obligation_group_id=obligation.group_id,
+            rmd_obligation_group_type=RmdObligationGroupType.TRADITIONAL_401K_PLAN,
+        )
+        entry = apply_transaction(
+            transaction,
+            accounts,
+            balances,
+            activity,
+            allow_negative_cash_balance=request.plan.allow_negative_cash_balance,
+        )
+        if not rules.tax_treatment.gross_rmd_is_ordinary_income:
+            entry = entry.model_copy(update={"taxable_ordinary_income": Decimal("0")})
+        entries.append(entry)
+        taxable_by_group[obligation.group_id] = entry.taxable_ordinary_income
     warnings = (
         (f"QCD target capacity shortfall: {qcd.unmet_target}",) if qcd.unmet_target > 0 else ()
     )
@@ -736,12 +786,83 @@ def _apply_annual_rmd_qcd(
             year=year,
             rule_dataset_id=rules.dataset_id,
             configured_qcd_target=qcd.configured_household_target,
-            gross_rmd=rmd.household_rmd,
+            gross_rmd=rmd.household_rmd
+            + sum(
+                (
+                    item.required_amount
+                    for item in obligations.obligations
+                    if item.group_type is RmdObligationGroupType.TRADITIONAL_401K_PLAN
+                ),
+                Decimal("0"),
+            ),
             qcd=qcd.actual_qcd,
-            taxable_rmd=qcd.remaining_taxable_rmd,
+            taxable_rmd=qcd.remaining_taxable_rmd
+            + sum(
+                (
+                    taxable_by_group.get(item.group_id, Decimal("0"))
+                    for item in obligations.obligations
+                    if item.group_type is RmdObligationGroupType.TRADITIONAL_401K_PLAN
+                ),
+                Decimal("0"),
+            ),
             qcd_capacity_shortfall=qcd.unmet_target,
             owners=tuple(annual_owners),
             warnings=warnings,
+            gross_ira_rmd=rmd.household_rmd,
+            taxable_ira_rmd=qcd.remaining_taxable_rmd,
+            gross_traditional_401k_rmd=sum(
+                (
+                    item.required_amount
+                    for item in obligations.obligations
+                    if item.group_type is RmdObligationGroupType.TRADITIONAL_401K_PLAN
+                ),
+                Decimal("0"),
+            ),
+            taxable_traditional_401k_rmd=sum(
+                (
+                    taxable_by_group.get(item.group_id, Decimal("0"))
+                    for item in obligations.obligations
+                    if item.group_type is RmdObligationGroupType.TRADITIONAL_401K_PLAN
+                ),
+                Decimal("0"),
+            ),
+            aggregate_gross_rmd=rmd.household_rmd
+            + sum(
+                (
+                    item.required_amount
+                    for item in obligations.obligations
+                    if item.group_type is RmdObligationGroupType.TRADITIONAL_401K_PLAN
+                ),
+                Decimal("0"),
+            ),
+            aggregate_taxable_rmd=qcd.remaining_taxable_rmd
+            + sum(
+                (
+                    taxable_by_group.get(item.group_id, Decimal("0"))
+                    for item in obligations.obligations
+                    if item.group_type is RmdObligationGroupType.TRADITIONAL_401K_PLAN
+                ),
+                Decimal("0"),
+            ),
+            obligation_groups=tuple(
+                AnnualRmdObligationGroupResult(
+                    group_id=item.group_id,
+                    group_type=item.group_type,
+                    owner_id=item.owner_id,
+                    account_ids=item.account_ids,
+                    prior_year_end_balances=item.prior_year_end_balances,
+                    balance_date=item.balance_date,
+                    distribution_year=item.distribution_year,
+                    payment_deadline=item.payment_deadline,
+                    divisor=item.divisor,
+                    required_amount=item.required_amount,
+                    taxable_amount=taxable_by_group.get(item.group_id, Decimal("0")),
+                    rule_dataset_id=item.rule_dataset_id,
+                    timing_rule=item.timing_rule,
+                    timing_provenance=item.timing_provenance,
+                )
+                for item in obligations.obligations
+            ),
         ),
         entries,
     )
@@ -872,6 +993,23 @@ def _calculate_annual_missouri_tax(
         raise ValueError(f"No applicable Missouri tax rule dataset exists for {year}")
     if federal_tax_result is None:
         raise ValueError("Missouri tax requires a federal tax result")
+    if rmd_qcd_result is not None and rmd_qcd_result.taxable_traditional_401k_rmd > 0:
+        obligation = next(
+            (
+                item
+                for item in rmd_qcd_result.obligation_groups
+                if item.group_type is RmdObligationGroupType.TRADITIONAL_401K_PLAN
+                and item.taxable_amount > 0
+            ),
+            None,
+        )
+        if obligation is not None:
+            raise ValueError(
+                "Missouri tax year "
+                f"{year} cannot classify Traditional 401(k) RMD for owner "
+                f"{obligation.owner_id}, account {obligation.account_ids[0]}: "
+                "unsupported Missouri classification"
+            )
     people = {person.id: person for person in request.plan.people}
     components = {
         person.id: {

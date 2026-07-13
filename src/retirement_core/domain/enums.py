@@ -86,6 +86,11 @@ class WorkplaceRmdTimingRule(StrEnum):
     LATER_OF_RETIREMENT = "later_of_retirement"
 
 
+class RmdFirstPaymentTiming(StrEnum):
+    DISTRIBUTION_YEAR = "distribution_year"
+    DEFER_TO_FOLLOWING_YEAR = "defer_to_following_year"
+
+
 class RmdObligationGroupType(StrEnum):
     IRA_OWNER_AGGREGATE = "ira_owner_aggregate"
     TRADITIONAL_401K_PLAN = "traditional_401k_plan"

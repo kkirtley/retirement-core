@@ -16,6 +16,8 @@ from retirement_core.domain.enums import (
     QcdAllocationMethod,
     QcdTargetMode,
     ResidencyStatus,
+    RmdFirstPaymentTiming,
+    RmdObligationGroupType,
     RothConversionMethod,
     SocialSecurityBenefitSubtype,
     TaxableRmdAllocationMethod,
@@ -46,6 +48,7 @@ class WorkplacePlanRmdInput(BaseModel):
     is_five_percent_owner: bool | None = None
     employment_end_date: date | None = None
     taxable_rmd_destination_account_id: str | None = None
+    first_rmd_payment_timing: RmdFirstPaymentTiming = RmdFirstPaymentTiming.DISTRIBUTION_YEAR
 
     @model_validator(mode="after")
     def validate_timing_configuration(self) -> WorkplacePlanRmdInput:
@@ -309,6 +312,8 @@ class AnnualTransactionInput(BaseModel):
     state_income_tax_withholding: NonNegativeMoney = Decimal("0")
     payroll_deductions_embedded_in_cash: str | None = None
     assumption_source: AssumptionSource | None = None
+    rmd_obligation_group_id: str | None = None
+    rmd_obligation_group_type: RmdObligationGroupType | None = None
 
     @model_validator(mode="after")
     def validate_tax_classification(self) -> AnnualTransactionInput:
@@ -476,6 +481,31 @@ class AnnualRmdQcdResult(BaseModel):
     qcd_capacity_shortfall: Decimal
     owners: tuple[AnnualRmdOwnerResult, ...]
     warnings: tuple[str, ...] = ()
+    gross_ira_rmd: Decimal = Decimal("0")
+    taxable_ira_rmd: Decimal = Decimal("0")
+    gross_traditional_401k_rmd: Decimal = Decimal("0")
+    taxable_traditional_401k_rmd: Decimal = Decimal("0")
+    aggregate_gross_rmd: Decimal = Decimal("0")
+    aggregate_taxable_rmd: Decimal = Decimal("0")
+    obligation_groups: tuple[AnnualRmdObligationGroupResult, ...] = ()
+
+
+class AnnualRmdObligationGroupResult(BaseModel):
+    model_config = ConfigDict(extra="forbid", frozen=True)
+    group_id: str
+    group_type: RmdObligationGroupType
+    owner_id: str
+    account_ids: tuple[str, ...]
+    prior_year_end_balances: dict[str, Decimal]
+    balance_date: date
+    distribution_year: int | None
+    payment_deadline: date | None
+    divisor: Decimal | None
+    required_amount: Decimal
+    taxable_amount: Decimal
+    rule_dataset_id: str
+    timing_rule: str
+    timing_provenance: str
 
 
 class AnnualSocialSecurityBenefit(BaseModel):
@@ -580,6 +610,8 @@ class TransactionLedgerEntry(BaseModel):
     medicare_payment: Decimal = Decimal("0")
     taxable_amount: Decimal | None = None
     roth_conversion_method: RothConversionMethod | None = None
+    rmd_obligation_group_id: str | None = None
+    rmd_obligation_group_type: RmdObligationGroupType | None = None
 
 
 def _income_active_on(
