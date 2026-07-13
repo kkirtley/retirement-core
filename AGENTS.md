@@ -2,38 +2,49 @@
 
 ## Project
 
-This repository contains `retirement_core`, a deterministic retirement calculation,
-reporting, and API foundation written in Python 3.14+.
+This repository contains `retirement_core`, a deterministic retirement calculation
+engine and API foundation written in Python 3.14+.
 
 ## Current capabilities
 
 The project currently provides:
 
 - Pydantic models for plans, accounts, income, and annual transactions
-- Annual account growth using `Decimal`
+- Deterministic annual account and household cash-flow reconciliation
+- Full-year account growth and simple actual-calendar-day proration for partial
+  years, with growth applied before annual transactions
+- Negative investment returns and optional year-specific return overrides
 - Explicit income, spending, contribution, withdrawal, transfer, Roth conversion,
   and charitable-giving transactions
 - Cash accounts with negative-balance protection
-- Annual account and household cash-flow reconciliation
-- 2026 married-filing-jointly federal tax for ordinary pension income, Roth conversions,
-  and taxable Social Security benefits
-- Owner-specific RMD and configurable QCD projection processing
-- Projected 2026 Missouri married-filing-combined retirement-income tax
-- Medicare Part B and Part D IRMAA pure calculation foundation with premium-year
-  rules and two-year MAGI lookback support
+- Typed recurring W-2 wages and VA disability income, including annual overrides
+- Withholding-aware federal and Missouri settlements and refunds
+- Annual federal AGI and IRMAA MAGI records with component provenance
+- Federal tax-rule selection by tax year; federally relevant unsupported years
+  fail closed rather than being treated as zero tax
+- Multi-year Social Security benefit generation and 2026 MFJ taxable-benefit
+  calculation, including tax-exempt interest in provisional income
+- IRA RMD and configurable QCD projections, plus separate Traditional 401(k)
+  obligations and account-specific 401(k) RMD distributions
+- 2026 married-filing-jointly federal tax within the supported ordinary-income scope
+- Projected 2026 Missouri married-filing-combined retirement-income tax within its
+  documented scope
+- Medicare Part B, Part D, and IRMAA premium cash-flow projections using
+  premium-year rules and a two-year MAGI lookback
 - Immutable transaction inputs and generated ledger results
 - A FastAPI adapter
 - PostgreSQL models and Alembic migration scaffolding
 - Versioned external rule-dataset interfaces
-- Unit and API tests
+- Unit and API tests with terminal coverage reporting through `make pre`
 
-The current deterministic timing convention applies annual growth to
-beginning-of-year balances, followed by generated income and declared transactions.
+Account balances are measured at `plan.start_date`. Full calendar years use the
+configured annual return; partial years use simple inclusive actual-day proration.
+An account may override its return for a specific year. Growth is applied before
+generated and declared transactions.
 
-Federal tax outside the supported 2026 MFJ scope, state tax outside the projected 2026
-Missouri scope, Medicare/IRMAA annual projection and cash-payment integration,
-survivor logic, optimization, reporting exports, and frontend behavior are not
-implemented.
+Only years with explicit federal and Missouri datasets are supported: there are no
+real federal or Missouri tax datasets after 2026. Medicare premium years are limited
+to the datasets present in the repository.
 
 ## Repository structure
 
@@ -65,8 +76,11 @@ docs/               Architecture documentation and ADRs
    The current aggregate account result records income in `contributions` and spending
    in `withdrawals`; transaction ledger entries preserve their explicit types.
 4. Household cash flow must reconcile annually:
-   `spendable income + cash withdrawals - spending - contributions - taxes
-   = surplus or deficit`.
+   `spendable income + cash withdrawals + federal tax refunds + Missouri tax refunds
+   - spending - contributions - federal tax payments - Missouri tax payments
+   - Medicare costs = surplus or deficit`.
+   Withholding is already reflected in configured spendable W-2 cash and is not
+   subtracted again.
 5. A reconciliation difference greater than `$0.01` must fail the projection.
 6. Transfers must be explicit. Roth conversions are account transfers, not
    spendable household cash.
@@ -91,11 +105,14 @@ Future work may add:
 
 - Additional federal and state income-tax rules
 - Additional Social Security benefit and taxation rules
-- Additional RMD account and inherited-IRA rules
-- Medicare/IRMAA projection integration, cash-payment modeling, appeals, penalties,
-  survivor behavior, and other advanced Medicare behavior
+- Additional RMD account types, first-RMD deferral, and inherited-IRA rules
+- Medicare appeals, late-enrollment penalties, hold-harmless, Extra Help, survivor
+  behavior, and other advanced Medicare behavior
 - Survivor and long-term-care scenarios
 - Withdrawal and Roth-conversion optimization
+- Self-employment tax, QBI, payroll taxes, and payroll-contribution mechanics
+- Traditional 401(k) Missouri retirement-subtraction classification
+- Monte Carlo or other stochastic market modeling
 - Versioned JSON, CSV, and Excel reports
 - Additional input validation and schema formats
 - Frontend applications that consume engine results without duplicating logic
