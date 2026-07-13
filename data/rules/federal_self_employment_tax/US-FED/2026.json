@@ -1,0 +1,28 @@
+{
+  "dataset_id": "US-FED-SE-TAX-2026-v1",
+  "dataset_type": "federal_self_employment_tax",
+  "jurisdiction": "US-FED",
+  "tax_year": 2026,
+  "effective_from": "2026-01-01",
+  "effective_to": "2026-12-31",
+  "version": "1",
+  "status": "enacted",
+  "values": {
+    "net_earnings_adjustment_factor": "0.9235",
+    "social_security_tax_rate": "0.124",
+    "medicare_tax_rate": "0.029",
+    "social_security_wage_base": "184500.00",
+    "minimum_net_earnings_filing_threshold": "400.00",
+    "employer_equivalent_deduction_rate": "0.50",
+    "additional_medicare_tax_rate": "0.009",
+    "additional_medicare_thresholds": {"married_filing_jointly": "250000.00"}
+  },
+  "provenance": {
+    "publisher": "Internal Revenue Service",
+    "source_title": "2026 self-employment tax and wage-base guidance",
+    "source_url": "https://www.irs.gov/forms-pubs/about-schedule-se-form-1040",
+    "source_reference": "Schedule SE, Form 8959, and 2026 Social Security wage-base guidance",
+    "retrieved_at": "2026-07-12",
+    "effective_date": "2026-01-01"
+  }
+}
