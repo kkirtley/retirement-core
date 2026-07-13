@@ -11,6 +11,7 @@ CENT = Decimal("0.01")
 class OwnerSelfEmploymentTaxResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     owner_id: str
+    tax_year: int
     net_business_profit: Decimal
     net_earnings: Decimal
     filing_threshold: Decimal
@@ -28,6 +29,8 @@ class OwnerSelfEmploymentTaxResult(BaseModel):
 class AdditionalMedicareTaxResult(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     household_medicare_wages: Decimal
+    tax_year: int
+    filing_status: FilingStatus
     household_self_employment_medicare_earnings: Decimal
     threshold: Decimal
     wage_excess_subject_to_tax: Decimal
@@ -66,6 +69,7 @@ def calculate_regular_self_employment_tax(
     regular = ss_tax + medicare_tax
     return OwnerSelfEmploymentTaxResult(
         owner_id=owner_id,
+        tax_year=tax_year,
         net_business_profit=net_business_profit,
         net_earnings=earnings,
         filing_threshold=rules.minimum_net_earnings_filing_threshold,
@@ -113,6 +117,8 @@ def calculate_additional_medicare_tax(
     )
     return AdditionalMedicareTaxResult(
         household_medicare_wages=wages,
+        tax_year=tax_year,
+        filing_status=filing_status,
         household_self_employment_medicare_earnings=se_medicare,
         threshold=threshold,
         wage_excess_subject_to_tax=wage_excess,
