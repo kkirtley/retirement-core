@@ -121,7 +121,7 @@ def test_pension_income_is_taxed_and_paid_from_cash(
     assert household.gross_income == Decimal("100000")
     assert household.cash_surplus == Decimal("92360.00")
     assert _balance(result, "cash") == Decimal("92360.00")
-    assert result.provenance["federal_tax_dataset_id"] == "US-FED-2026-v1"
+    assert result.provenance["federal_tax_dataset_id:2026"] == "US-FED-2026-v1"
     _assert_reconciles(result)
 
 

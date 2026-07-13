@@ -81,6 +81,7 @@ def run_projection(
     rmd_qcd_rules_by_year: dict[int, RmdQcdRules] | None = None,
     missouri_tax_rules_by_year: dict[int, MissouriTaxRules] | None = None,
     medicare_irmaa_rules_by_year: dict[int, MedicareIrmaaRules] | None = None,
+    federal_tax_rules_by_year: dict[int, FederalTaxRules] | None = None,
 ) -> ProjectionResult:
     plan = request.plan
     accounts = {account.id: account for account in plan.accounts}
@@ -94,6 +95,14 @@ def run_projection(
     rmd_qcd_rules_by_year = rmd_qcd_rules_by_year or {}
     missouri_tax_rules_by_year = missouri_tax_rules_by_year or {}
     medicare_irmaa_rules_by_year = medicare_irmaa_rules_by_year or {}
+    federal_tax_rules_by_year = dict(federal_tax_rules_by_year or {})
+    if federal_tax_rules is not None:
+        existing = federal_tax_rules_by_year.get(federal_tax_rules.tax_year)
+        if existing is not None and existing != federal_tax_rules:
+            raise ValueError(
+                f"Conflicting federal tax rules for tax year {federal_tax_rules.tax_year}"
+            )
+        federal_tax_rules_by_year[federal_tax_rules.tax_year] = federal_tax_rules
     completed_irmaa_tax_records: dict[int, IrmaaTaxRecordInput] = {}
 
     first_year = plan.start_date.year
@@ -147,6 +156,7 @@ def run_projection(
                 [],
                 [],
             ),
+            federal_tax_rules_by_year,
         )
 
         rmd_qcd_result: AnnualRmdQcdResult | None = None
@@ -198,6 +208,7 @@ def run_projection(
                 social_security_benefits,
                 year_entries,
             ),
+            federal_tax_rules_by_year,
         )
 
         federal_agi_result, federal_tax_result, social_security_taxation = (
@@ -208,7 +219,7 @@ def run_projection(
                 year_entries,
                 resolved_income,
                 social_security_benefits,
-                federal_tax_rules,
+                federal_tax_rules_by_year.get(year),
             )
         )
         missouri_tax_result = _calculate_annual_missouri_tax(
@@ -413,8 +424,9 @@ def run_projection(
             "inclusive actual-calendar-day proration"
         ),
     }
-    if federal_tax_rules is not None and first_year <= 2026 <= last_year:
-        provenance["federal_tax_dataset_id"] = federal_tax_rules.dataset_id
+    for year, federal_rule in sorted(federal_tax_rules_by_year.items()):
+        if first_year <= year <= last_year:
+            provenance[f"federal_tax_dataset_id:{year}"] = federal_rule.dataset_id
     for year, rules in sorted(rmd_qcd_rules_by_year.items()):
         if first_year <= year <= last_year:
             provenance[f"rmd_qcd_dataset_id:{year}"] = rules.dataset_id
@@ -433,8 +445,8 @@ def run_projection(
         annual_household=annual_household,
         transactions=ledger_entries,
         warnings=[
-            "Federal tax and AGI processing is limited to 2026 MFJ modeled sources and fails "
-            "closed for unsupported years with federal-processing-relevant activity. "
+            "Federal tax and AGI processing is supported only for years with an explicit "
+            "versioned dataset and fails closed when a required year is missing. "
             "Missouri tax uses a projected 2026 return rate based on the official withholding "
             "formula. Medicare/IRMAA cash-flow integration excludes appeals, hold-harmless, "
             "late-enrollment penalties, Extra Help, survivor behavior, and automatic enrollment "
@@ -969,12 +981,19 @@ def _calculate_annual_federal_tax(
     FederalIncomeTaxResult | None,
     SocialSecurityTaxationResult | None,
 ]:
-    if year != 2026:
-        return None, None, None
     if federal_tax_rules is None:
-        raise ValueError("2026 federal tax rules are required for a 2026 projection")
-    if request.plan.filing_status is not FilingStatus.MARRIED_FILING_JOINTLY:
-        raise ValueError("Only married-filing-jointly 2026 federal tax is implemented")
+        return None, None, None
+    if federal_tax_rules.tax_year != year:
+        raise ValueError(
+            f"Federal tax rules tax year {federal_tax_rules.tax_year} does not match "
+            f"projection year {year}"
+        )
+    if federal_tax_rules.filing_status is not request.plan.filing_status:
+        raise ValueError(
+            f"Federal tax rules filing status {federal_tax_rules.filing_status.value} "
+            "does not match "
+            f"plan filing status {request.plan.filing_status.value}"
+        )
 
     preliminary_agi = build_annual_federal_agi(
         request,
@@ -1010,12 +1029,23 @@ def _calculate_annual_federal_tax(
     return federal_agi, federal_tax, social_security_taxation
 
 
-def _raise_if_unsupported_federal_processing(year: int, source_ids: list[str]) -> None:
-    if year == 2026 or not source_ids:
+def _raise_if_unsupported_federal_processing(
+    year: int,
+    source_ids: list[str],
+    federal_tax_rules_by_year: dict[int, FederalTaxRules],
+) -> None:
+    if not source_ids:
+        return
+    rules = federal_tax_rules_by_year.get(year)
+    if rules is not None and rules.tax_year != year:
+        raise ValueError(
+            f"Federal tax rules tax year {rules.tax_year} does not match projection year {year}"
+        )
+    if rules is not None:
         return
     raise ValueError(
         f"Federal tax/AGI processing is unsupported for tax year {year}; "
-        f"triggering source IDs: {', '.join(source_ids)}"
+        f"triggering source IDs: {', '.join(source_ids)}; no explicit rule dataset exists"
     )
 
 

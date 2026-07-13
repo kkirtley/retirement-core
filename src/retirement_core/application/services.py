@@ -12,10 +12,15 @@ class ProjectionService:
         self._rule_provider = rule_provider
 
     def run(self, request: ProjectionRequest) -> ProjectionResult:
-        federal_tax_rules = None
-        if request.plan.start_date.year <= 2026 <= request.plan.end_date.year:
-            dataset = self._rule_provider.get_dataset("federal_tax", "US-FED", 2026)
-            federal_tax_rules = FederalTaxRules.from_dataset(dataset, request.plan.filing_status)
+        federal_tax_rules_by_year: dict[int, FederalTaxRules] = {}
+        for year in range(request.plan.start_date.year, request.plan.end_date.year + 1):
+            try:
+                dataset = self._rule_provider.get_dataset("federal_tax", "US-FED", year)
+            except FileNotFoundError:
+                continue
+            federal_tax_rules_by_year[year] = FederalTaxRules.from_dataset(
+                dataset, request.plan.filing_status
+            )
         rmd_qcd_rules_by_year: dict[int, RmdQcdRules] = {}
         pretax_account_types = {AccountType.TRADITIONAL_IRA, AccountType.TRADITIONAL_401K}
         requires_rmd_qcd = bool(request.plan.people) and any(
@@ -69,8 +74,8 @@ class ProjectionService:
                 medicare_irmaa_rules_by_year[year] = MedicareIrmaaRules.from_dataset(dataset)
         return run_projection(
             request,
-            federal_tax_rules,
-            rmd_qcd_rules_by_year,
-            missouri_tax_rules_by_year,
-            medicare_irmaa_rules_by_year,
+            rmd_qcd_rules_by_year=rmd_qcd_rules_by_year,
+            missouri_tax_rules_by_year=missouri_tax_rules_by_year,
+            medicare_irmaa_rules_by_year=medicare_irmaa_rules_by_year,
+            federal_tax_rules_by_year=federal_tax_rules_by_year,
         )

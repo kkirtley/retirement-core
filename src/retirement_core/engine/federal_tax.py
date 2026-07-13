@@ -1,6 +1,5 @@
 from decimal import ROUND_HALF_UP, Decimal
 
-from retirement_core.domain.enums import FilingStatus
 from retirement_core.domain.models import (
     FederalBracketTax,
     FederalIncomeTaxResult,
@@ -15,7 +14,7 @@ def calculate_federal_income_tax(
     gross_ordinary_income: Decimal,
     rules: FederalTaxRules,
 ) -> FederalIncomeTaxResult:
-    """Calculate 2026 MFJ federal tax on ordinary income before the standard deduction.
+    """Calculate federal tax on ordinary income before the standard deduction.
 
     ``gross_ordinary_income`` is not AGI and is not taxable income. It may include a
     taxable Social Security amount calculated by the caller, but this function does not
@@ -24,9 +23,6 @@ def calculate_federal_income_tax(
     """
     if gross_ordinary_income < 0:
         raise ValueError("Gross ordinary income cannot be negative")
-    if rules.tax_year != 2026 or rules.filing_status is not FilingStatus.MARRIED_FILING_JOINTLY:
-        raise ValueError("Only 2026 married-filing-jointly federal tax is implemented")
-
     taxable_income = max(gross_ordinary_income - rules.standard_deduction, Decimal("0"))
     bracket_taxes: list[FederalBracketTax] = []
     marginal_bracket: FederalMarginalBracket | None = None
