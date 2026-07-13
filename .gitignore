@@ -10,6 +10,7 @@ dist/
 build/
 *.egg-info/
 .env
+scenarios/private/
 .vscode/
 .idea/
 .DS_Store
