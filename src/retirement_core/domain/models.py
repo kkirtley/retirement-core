@@ -446,6 +446,9 @@ class AnnualSocialSecurityBenefit(BaseModel):
     monthly_benefit: Decimal
     months_received: int
     gross_benefit: Decimal
+    benefit_period_start: date | None = None
+    benefit_period_end: date | None = None
+    applied_cola_years: int = 0
 
 
 class SocialSecurityTaxationResult(BaseModel):

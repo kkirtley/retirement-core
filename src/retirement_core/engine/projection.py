@@ -38,6 +38,7 @@ from retirement_core.domain.models import (
     ProjectionRequest,
     ProjectionResult,
     ResolvedAnnualIncome,
+    SocialSecurityInput,
     SocialSecurityTaxationResult,
     TransactionLedgerEntry,
 )
@@ -1074,7 +1075,10 @@ def _federal_processing_source_ids(
         if requires_processing:
             source_ids.append(f"income:{income.income_id}")
     for source in request.plan.social_security:
-        if source.claim_date.year <= year and source.monthly_benefit > 0:
+        if (
+            _social_security_months_received(request.plan, source, year) > 0
+            and source.monthly_benefit > 0
+        ):
             source_ids.append(f"social-security:{source.id}")
     accounts = {account.id: account for account in request.plan.accounts}
     for transaction in plan_transactions:
@@ -1166,24 +1170,26 @@ def _social_security_transactions(
     benefits: list[AnnualSocialSecurityBenefit] = []
     transactions: list[AnnualTransactionInput] = []
     for source in request.plan.social_security:
-        if year < source.claim_date.year:
+        months = _social_security_months_received(request.plan, source, year)
+        if months == 0:
             continue
-        if year != 2026:
-            raise ValueError("Modeled Social Security projection is currently limited to 2026")
         years_after_claim = year - source.claim_date.year
         monthly_benefit = (
             source.monthly_benefit * (Decimal("1") + source.annual_cola) ** years_after_claim
         ).quantize(_CENT, rounding=ROUND_HALF_UP)
-        months_received = 12 if years_after_claim > 0 else 13 - source.claim_date.month
-        gross_benefit = monthly_benefit * months_received
+        gross_benefit = monthly_benefit * months
+        benefit_months = _social_security_benefit_months(request.plan, source, year)
         benefits.append(
             AnnualSocialSecurityBenefit(
                 source_id=source.id,
                 owner_id=source.owner_id,
                 benefit_subtype=source.benefit_subtype,
                 monthly_benefit=monthly_benefit,
-                months_received=months_received,
+                months_received=months,
                 gross_benefit=gross_benefit,
+                benefit_period_start=date(year, benefit_months[0], 1),
+                benefit_period_end=date(year, benefit_months[-1], 1),
+                applied_cola_years=years_after_claim,
             )
         )
         if gross_benefit > 0:
@@ -1197,6 +1203,29 @@ def _social_security_transactions(
                 )
             )
     return benefits, transactions
+
+
+def _social_security_months_received(
+    plan: PlanInput,
+    source: SocialSecurityInput,
+    year: int,
+) -> int:
+    return len(_social_security_benefit_months(plan, source, year))
+
+
+def _social_security_benefit_months(
+    plan: PlanInput,
+    source: SocialSecurityInput,
+    year: int,
+) -> list[int]:
+    if year < source.claim_date.year:
+        return []
+    first_benefit_month = source.claim_date.month if year == source.claim_date.year else 1
+    return [
+        month
+        for month in range(first_benefit_month, 13)
+        if plan.start_date <= date(year, month, 1) <= plan.end_date
+    ]
 
 
 def _income_transactions(
