@@ -75,9 +75,9 @@ def _aggregate(
 
 
 def test_ordinary_only_and_all_components() -> None:
-    assert _aggregate().total_federal_tax_liability == Decimal("100")
+    assert _aggregate().gross_federal_tax_liability == Decimal("100")
     result = _aggregate((_se(), _se("b", tax="30")), _additional())
-    assert result.total_federal_tax_liability == Decimal("159")
+    assert result.gross_federal_tax_liability == Decimal("159")
     assert result.regular_self_employment_tax == Decimal("50")
     assert result.additional_medicare_tax_withholding == Decimal("3")
     assert result.regular_self_employment_details[0].deductible_employer_equivalent_tax == Decimal(
@@ -95,3 +95,19 @@ def test_component_validation_fails_closed() -> None:
     invalid = _additional()
     with pytest.raises(ValueError, match="structurally inconsistent"):
         _aggregate((), invalid.model_copy(update={"dataset_id": ""}))
+
+
+def test_multiple_owner_provenance_must_be_consistent() -> None:
+    result = _aggregate((_se(), _se("b", tax="30")))
+    assert [item.dataset_id for item in result.regular_self_employment_details] == [
+        "se-2026",
+        "se-2026",
+    ]
+    assert [item.rule_provenance for item in result.regular_self_employment_details] == [
+        "SE rules",
+        "SE rules",
+    ]
+    with pytest.raises(ValueError, match="consistent dataset ID"):
+        _aggregate((_se(), _se("b").model_copy(update={"dataset_id": "other"})))
+    with pytest.raises(ValueError, match="consistent rule provenance"):
+        _aggregate((_se(), _se("b").model_copy(update={"rule_provenance": "other"})))

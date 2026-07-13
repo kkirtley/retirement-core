@@ -22,7 +22,7 @@ class FederalTaxLiabilityResult(BaseModel):
     ordinary_federal_income_tax: Decimal = Field(ge=0)
     regular_self_employment_tax: Decimal = Field(ge=0)
     additional_medicare_tax: Decimal = Field(ge=0)
-    total_federal_tax_liability: Decimal = Field(ge=0)
+    gross_federal_tax_liability: Decimal = Field(ge=0)
     regular_self_employment_details: tuple[FederalRegularSelfEmploymentLiabilityDetail, ...]
     ordinary_income_tax_dataset_id: str
     ordinary_income_tax_rule_provenance: str
@@ -34,7 +34,7 @@ class FederalTaxLiabilityResult(BaseModel):
 
     @model_validator(mode="after")
     def validate_total(self) -> FederalTaxLiabilityResult:
-        if self.total_federal_tax_liability != (
+        if self.gross_federal_tax_liability != (
             self.ordinary_federal_income_tax
             + self.regular_self_employment_tax
             + self.additional_medicare_tax

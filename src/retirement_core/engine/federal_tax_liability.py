@@ -41,6 +41,13 @@ def aggregate_federal_tax_liability(
             raise ValueError("Deductible SE tax cannot exceed regular self-employment tax")
         if not item.dataset_id or not item.rule_provenance:
             raise ValueError("Self-employment dataset ID and provenance are required")
+    if self_employment_results:
+        dataset_ids = {item.dataset_id for item in self_employment_results}
+        provenances = {item.rule_provenance for item in self_employment_results}
+        if len(dataset_ids) != 1:
+            raise ValueError("Self-employment results must use one consistent dataset ID")
+        if len(provenances) != 1:
+            raise ValueError("Self-employment results must use one consistent rule provenance")
     if additional_medicare_tax is not None:
         if additional_medicare_tax.tax_year != tax_year:
             raise ValueError("Additional Medicare tax year does not match liability tax year")
@@ -69,7 +76,7 @@ def aggregate_federal_tax_liability(
         ordinary_federal_income_tax=ordinary_income_tax.total_federal_tax,
         regular_self_employment_tax=regular,
         additional_medicare_tax=additional,
-        total_federal_tax_liability=ordinary_income_tax.total_federal_tax + regular + additional,
+        gross_federal_tax_liability=ordinary_income_tax.total_federal_tax + regular + additional,
         regular_self_employment_details=tuple(
             FederalRegularSelfEmploymentLiabilityDetail(
                 owner_id=item.owner_id,
